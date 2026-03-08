@@ -1,0 +1,179 @@
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import type { Express, Request, Response } from "express";
+import * as db from "../db";
+import { getSessionCookieOptions } from "./cookies";
+import { ENV } from "./env";
+import { sdk } from "./sdk";
+
+function getQueryParam(req: Request, key: string): string | undefined {
+  const value = req.query[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+type GoogleTokenResponse = {
+  access_token: string;
+};
+
+type GoogleUserInfo = {
+  sub: string;
+  name?: string;
+  email?: string;
+};
+
+function assertGoogleOAuthConfig() {
+  if (!ENV.googleClientId || !ENV.googleClientSecret) {
+    throw new Error(
+      "Missing Google OAuth config: set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET"
+    );
+  }
+}
+
+function getRequestProto(req: Request): string {
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  if (Array.isArray(forwardedProto) && forwardedProto[0]) {
+    return forwardedProto[0];
+  }
+  if (typeof forwardedProto === "string" && forwardedProto.length > 0) {
+    return forwardedProto.split(",")[0]?.trim() || req.protocol;
+  }
+  return req.protocol;
+}
+
+function resolveGoogleRedirectUri(req: Request): string {
+  const host = req.get("host");
+  if (!host) {
+    throw new Error("Missing request host for dynamic GOOGLE_REDIRECT_URI resolution");
+  }
+  const proto = getRequestProto(req);
+  const dynamicUri = `${proto}://${host}/api/oauth/callback`;
+
+  if (!ENV.googleRedirectUri) return dynamicUri;
+
+  // Mobile/LAN access should not be forced onto localhost redirect URI.
+  const requestIsLocalhost = host.includes("localhost") || host.startsWith("127.0.0.1");
+  const configuredUsesLocalhost =
+    ENV.googleRedirectUri.includes("localhost") || ENV.googleRedirectUri.includes("127.0.0.1");
+  if (!requestIsLocalhost && configuredUsesLocalhost) {
+    return dynamicUri;
+  }
+
+  return ENV.googleRedirectUri;
+}
+
+function buildGoogleAuthUrl(req: Request) {
+  assertGoogleOAuthConfig();
+  const redirectUri = resolveGoogleRedirectUri(req);
+
+  const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  url.searchParams.set("client_id", ENV.googleClientId);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", "openid email profile");
+  url.searchParams.set("access_type", "offline");
+  url.searchParams.set("prompt", "consent select_account");
+  return url.toString();
+}
+
+async function exchangeGoogleCodeForToken(code: string, req: Request): Promise<string> {
+  assertGoogleOAuthConfig();
+  const redirectUri = resolveGoogleRedirectUri(req);
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      code,
+      client_id: ENV.googleClientId,
+      client_secret: ENV.googleClientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Google token exchange failed: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`
+    );
+  }
+
+  const payload = (await response.json()) as GoogleTokenResponse;
+  if (!payload.access_token) {
+    throw new Error("Google token exchange returned no access_token");
+  }
+
+  return payload.access_token;
+}
+
+async function fetchGoogleUserInfo(accessToken: string): Promise<GoogleUserInfo> {
+  const response = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `Google user info fetch failed: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`
+    );
+  }
+
+  const payload = (await response.json()) as GoogleUserInfo;
+  if (!payload.sub) {
+    throw new Error("Google user info response missing sub");
+  }
+
+  return payload;
+}
+
+export function registerOAuthRoutes(app: Express) {
+  app.get("/api/oauth/login", (req: Request, res: Response) => {
+    try {
+      res.redirect(302, buildGoogleAuthUrl(req));
+    } catch (error) {
+      console.error("[OAuth] Login URL generation failed", error);
+      res.status(500).json({ error: "OAuth configuration invalid" });
+    }
+  });
+
+  app.get("/api/oauth/callback", async (req: Request, res: Response) => {
+    const code = getQueryParam(req, "code");
+
+    if (!code) {
+      res.status(400).json({ error: "code is required" });
+      return;
+    }
+
+    try {
+      const accessToken = await exchangeGoogleCodeForToken(code, req);
+      const userInfo = await fetchGoogleUserInfo(accessToken);
+
+      const openId = `google:${userInfo.sub}`;
+      const loginMethod = "google";
+
+      await db.upsertUser({
+        openId,
+        name: userInfo.name || null,
+        email: userInfo.email ?? null,
+        loginMethod,
+        lastSignedIn: new Date(),
+      });
+
+      const sessionToken = await sdk.createSessionToken(openId, {
+        name: userInfo.name || "",
+        expiresInMs: ONE_YEAR_MS,
+      });
+
+      const cookieOptions = getSessionCookieOptions(req);
+      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+      res.redirect(302, "/");
+    } catch (error) {
+      console.error("[OAuth] Callback failed", error);
+      res.status(500).json({ error: "OAuth callback failed" });
+    }
+  });
+}
