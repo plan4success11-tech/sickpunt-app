@@ -143,9 +143,14 @@ export function registerOAuthRoutes(app: Express) {
     const code = getQueryParam(req, "code");
 
     if (!code) {
-      res.status(400).json({ error: "code is required" });
+      const errorParam = getQueryParam(req, "error");
+      console.error("[OAuth] Callback missing code, error param:", errorParam);
+      res.status(400).json({ error: "code is required", googleError: errorParam });
       return;
     }
+
+    const resolvedRedirectUri = resolveGoogleRedirectUri(req);
+    console.log("[OAuth] Callback — resolved redirect_uri:", resolvedRedirectUri);
 
     try {
       const accessToken = await exchangeGoogleCodeForToken(code, req);
@@ -172,8 +177,9 @@ export function registerOAuthRoutes(app: Express) {
 
       res.redirect(302, "/");
     } catch (error) {
-      console.error("[OAuth] Callback failed", error);
-      res.status(500).json({ error: "OAuth callback failed" });
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[OAuth] Callback failed:", message);
+      res.status(500).json({ error: "OAuth callback failed", detail: message });
     }
   });
 }
