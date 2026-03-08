@@ -1,3 +1,8 @@
+// Startup diagnostics — log lengths of critical secrets (never log values)
+console.log("[ENV] JWT_SECRET length:", (process.env.JWT_SECRET ?? "").length);
+console.log("[ENV] GOOGLE_CLIENT_SECRET length:", (process.env.GOOGLE_CLIENT_SECRET ?? "").length);
+console.log("[ENV] GOOGLE_CLIENT_ID:", process.env.GOOGLE_CLIENT_ID ? process.env.GOOGLE_CLIENT_ID.substring(0, 20) + "..." : "MISSING");
+
 export const ENV = {
   appId: process.env.VITE_APP_ID ?? "",
   cookieSecret: process.env.JWT_SECRET ?? "",
