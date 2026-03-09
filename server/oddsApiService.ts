@@ -101,7 +101,8 @@ export async function fetchOdds(
       usedRequests,
     };
   } catch (error) {
-    console.error(`[OddsAPI] Failed to fetch odds for ${sportKey}:`, error);
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`[OddsAPI] Failed to fetch odds for ${sportKey}: ${msg}`);
     throw new Error(`Failed to fetch odds for ${sportKey}`);
   }
 }
@@ -123,7 +124,8 @@ export async function fetchMultipleSportsOdds(
       // Add small delay to avoid rate limiting
       await new Promise((resolve) => setTimeout(resolve, 100));
     } catch (error) {
-      console.error(`[OddsAPI] Failed to fetch odds for ${sportKey}:`, error);
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`[OddsAPI] Failed to fetch odds for ${sportKey}: ${msg}`);
       results.set(sportKey, []);
     }
   }
