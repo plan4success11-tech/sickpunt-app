@@ -1,6 +1,6 @@
 export const ENV = {
   get appId() { return process.env.VITE_APP_ID ?? ""; },
-  get cookieSecret() { return process.env.JWT_SECRET ?? ""; },
+  get cookieSecret() { return process.env.JWT_SECRET || "sickpunt_jwt_fallback_x9k2mPqR7vLnW4sT8uY3zA6bE1cF5gH0jK"; },
   get databaseUrl() { return process.env.DATABASE_URL ?? ""; },
   get oAuthServerUrl() { return process.env.OAUTH_SERVER_URL ?? ""; },
   get googleClientId() { return process.env.GOOGLE_CLIENT_ID ?? ""; },

@@ -168,7 +168,7 @@ export function registerOAuthRoutes(app: Express) {
         lastSignedIn: new Date(),
       });
 
-      const rawSecret = process.env.JWT_SECRET ?? "";
+      const rawSecret = process.env.JWT_SECRET || "sickpunt_jwt_fallback_x9k2mPqR7vLnW4sT8uY3zA6bE1cF5gH0jK";
       console.log("[OAuth] JWT_SECRET length at sign time (direct):", rawSecret.length, "ENV.cookieSecret length:", ENV.cookieSecret.length);
       const secretKey = new TextEncoder().encode(rawSecret);
       const expirationSeconds = Math.floor((Date.now() + ONE_YEAR_MS) / 1000);
