@@ -166,6 +166,15 @@ export function registerOAuthRoutes(app: Express) {
       }
     }
 
+    // Test the full SDK authenticateRequest flow
+    let sdkUser: unknown = null;
+    let sdkError: string | null = null;
+    try {
+      sdkUser = await sdk.authenticateRequest(req);
+    } catch (e) {
+      sdkError = e instanceof Error ? `${e.message} | ${(e as any).stack?.split('\n')[1] ?? ''}` : String(e);
+    }
+
     res.json({
       hasCookie: !!sessionValue,
       cookiePreview: sessionValue ? sessionValue.slice(0, 40) + "..." : null,
@@ -175,6 +184,8 @@ export function registerOAuthRoutes(app: Express) {
       jwtError,
       dbUser,
       dbError,
+      sdkUser,
+      sdkError,
     });
   });
 
