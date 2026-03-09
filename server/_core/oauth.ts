@@ -131,6 +131,39 @@ async function fetchGoogleUserInfo(accessToken: string): Promise<GoogleUserInfo>
 }
 
 export function registerOAuthRoutes(app: Express) {
+  // Debug endpoint — remove after auth is confirmed working
+  app.get("/api/debug/auth", async (req: Request, res: Response) => {
+    const rawCookie = req.headers.cookie || "";
+    const COOKIE_NAME_VAL = "app_session_id";
+    const cookieParts = rawCookie.split(";").map((s: string) => s.trim());
+    const sessionPart = cookieParts.find((p: string) => p.startsWith(COOKIE_NAME_VAL + "="));
+    const sessionValue = sessionPart ? sessionPart.slice(COOKIE_NAME_VAL.length + 1) : null;
+
+    const rawSecret = process.env.JWT_SECRET || "sickpunt_jwt_fallback_x9k2mPqR7vLnW4sT8uY3zA6bE1cF5gH0jK";
+    let jwtResult: unknown = null;
+    let jwtError: string | null = null;
+
+    if (sessionValue) {
+      try {
+        const { jwtVerify } = await import("jose");
+        const secretKey = new TextEncoder().encode(rawSecret);
+        const { payload } = await jwtVerify(sessionValue, secretKey, { algorithms: ["HS256"] });
+        jwtResult = payload;
+      } catch (e) {
+        jwtError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
+    res.json({
+      hasCookie: !!sessionValue,
+      cookiePreview: sessionValue ? sessionValue.slice(0, 40) + "..." : null,
+      rawCookieHeader: rawCookie || null,
+      jwtSecretLength: rawSecret.length,
+      jwtPayload: jwtResult,
+      jwtError,
+    });
+  });
+
   app.get("/api/oauth/login", (req: Request, res: Response) => {
     try {
       res.redirect(302, buildGoogleAuthUrl(req));
