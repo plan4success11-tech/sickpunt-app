@@ -154,6 +154,18 @@ export function registerOAuthRoutes(app: Express) {
       }
     }
 
+    // Check DB for user
+    let dbUser: unknown = null;
+    let dbError: string | null = null;
+    const openId = (jwtResult as any)?.openId;
+    if (openId) {
+      try {
+        dbUser = await db.getUserByOpenId(openId);
+      } catch (e) {
+        dbError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
     res.json({
       hasCookie: !!sessionValue,
       cookiePreview: sessionValue ? sessionValue.slice(0, 40) + "..." : null,
@@ -161,6 +173,8 @@ export function registerOAuthRoutes(app: Express) {
       jwtSecretLength: rawSecret.length,
       jwtPayload: jwtResult,
       jwtError,
+      dbUser,
+      dbError,
     });
   });
 
