@@ -1,5 +1,6 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
+import { SignJWT } from "jose";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { ENV } from "./env";
@@ -167,11 +168,18 @@ export function registerOAuthRoutes(app: Express) {
         lastSignedIn: new Date(),
       });
 
-      console.log("[OAuth] cookieSecret length at sign time:", ENV.cookieSecret.length);
-      const sessionToken = await sdk.createSessionToken(openId, {
+      const rawSecret = process.env.JWT_SECRET ?? "";
+      console.log("[OAuth] JWT_SECRET length at sign time (direct):", rawSecret.length, "ENV.cookieSecret length:", ENV.cookieSecret.length);
+      const secretKey = new TextEncoder().encode(rawSecret);
+      const expirationSeconds = Math.floor((Date.now() + ONE_YEAR_MS) / 1000);
+      const sessionToken = await new SignJWT({
+        openId,
+        appId: ENV.appId || "sickpunt",
         name: userInfo.name || "",
-        expiresInMs: ONE_YEAR_MS,
-      });
+      })
+        .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+        .setExpirationTime(expirationSeconds)
+        .sign(secretKey);
 
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
