@@ -167,6 +167,7 @@ export function registerOAuthRoutes(app: Express) {
         lastSignedIn: new Date(),
       });
 
+      console.log("[OAuth] cookieSecret length at sign time:", ENV.cookieSecret.length);
       const sessionToken = await sdk.createSessionToken(openId, {
         name: userInfo.name || "",
         expiresInMs: ONE_YEAR_MS,
