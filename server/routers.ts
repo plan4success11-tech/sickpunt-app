@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { jwtVerify } from "jose";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -59,7 +60,39 @@ export const appRouter = router({
   system: systemRouter,
   
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(async (opts) => {
+      // Fast path: SDK authenticated the user via DB lookup
+      if (opts.ctx.user) return opts.ctx.user;
+
+      // Fallback: verify JWT directly (handles DB-unavailable scenarios)
+      try {
+        const cookieHeader = opts.ctx.req.headers.cookie || "";
+        const sessionPart = cookieHeader.split(";").map(s => s.trim()).find(p => p.startsWith(COOKIE_NAME + "="));
+        if (!sessionPart) return null;
+        const sessionValue = sessionPart.slice(COOKIE_NAME.length + 1);
+
+        const rawSecret = process.env.JWT_SECRET || "sickpunt_jwt_fallback_x9k2mPqR7vLnW4sT8uY3zA6bE1cF5gH0jK";
+        const secretKey = new TextEncoder().encode(rawSecret);
+        const { payload } = await jwtVerify(sessionValue, secretKey, { algorithms: ["HS256"] });
+        const openId = payload.openId as string;
+        const name = payload.name as string | undefined;
+        if (!openId) return null;
+
+        // Try DB lookup — might work if DB is up
+        const { getUserByOpenId, upsertUser } = await import("./db");
+        let user = await getUserByOpenId(openId).catch(() => null);
+        if (!user) {
+          await upsertUser({ openId, name: name || null, lastSignedIn: new Date() }).catch(() => {});
+          user = await getUserByOpenId(openId).catch(() => null);
+        }
+        if (user) return user;
+
+        // DB unavailable — return minimal user from JWT so the session still works
+        return { id: 0, openId, name: name || null, email: null, role: "user" as const, loginMethod: "google", lastSignedIn: new Date() };
+      } catch {
+        return null;
+      }
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
