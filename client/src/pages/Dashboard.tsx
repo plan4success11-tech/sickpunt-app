@@ -381,7 +381,7 @@ export default function Dashboard() {
             </p>
             {imperialStatus?.lastError && (
               <div className="mt-2 p-2 rounded-lg border border-red-500/20 bg-red-500/5">
-                <p className="text-xs text-red-400">{imperialStatus.lastError}</p>
+                <p className="text-xs text-red-400 font-semibold">⚠ Last sync failed — tap Refresh to try again</p>
               </div>
             )}
           </div>
