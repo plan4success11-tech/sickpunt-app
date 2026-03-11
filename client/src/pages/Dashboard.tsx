@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,11 +10,36 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   RefreshCw, CheckCircle, ShieldCheck, Gift, Star, ExternalLink,
   MessageSquare, TrendingUp, TrendingDown, Zap, Layers, BookOpen,
-  Calculator, Clock, LayoutDashboard, AlertCircle, Bell,
+  Calculator, Clock, LayoutDashboard, AlertCircle, Bell, Info,
+  FlaskConical, Banknote,
 } from "lucide-react";
 import { BettingChatBox } from "@/components/BettingChatBox";
 import { BettingCalculators } from "@/components/BettingCalculators";
+import { OnboardingModal, useOnboarding } from "@/components/OnboardingModal";
 import type { Opportunity } from "../../../drizzle/schema";
+
+// ── Paper trading helpers ─────────────────────────────────────────────────────
+const PAPER_KEY = "sp_paper_bets";
+type PaperBet = {
+  id: string; event: string; bookmaker: string; odds: number;
+  stake: number; outcome: string; status: "pending" | "won" | "lost";
+  loggedAt: string;
+};
+function getPaperBets(): PaperBet[] {
+  try { return JSON.parse(localStorage.getItem(PAPER_KEY) || "[]"); } catch { return []; }
+}
+function savePaperBets(bets: PaperBet[]) {
+  localStorage.setItem(PAPER_KEY, JSON.stringify(bets));
+}
+function addPaperBet(bet: Omit<PaperBet, "id" | "loggedAt">) {
+  const bets = getPaperBets();
+  bets.unshift({ ...bet, id: `paper_${Date.now()}`, loggedAt: new Date().toISOString() });
+  savePaperBets(bets);
+}
+function settlePaperBet(id: string, status: "won" | "lost") {
+  const bets = getPaperBets().map(b => b.id === id ? { ...b, status } : b);
+  savePaperBets(bets);
+}
 
 // ── Arbitrage stake calculation ───────────────────────────────────────────────
 function calcArbStakes(odds1: number, odds2: number, totalStake: number) {
@@ -114,6 +138,24 @@ function RoiBadge({ roi }: { roi: number }) {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
+  // Onboarding
+  const { open: showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
+
+  // Paper trading mode
+  const [paperMode, setPaperMode] = useState(() => localStorage.getItem("sp_paper_mode") === "true");
+  const [paperBets, setPaperBets] = useState<ReturnType<typeof getPaperBets>>(getPaperBets);
+  const togglePaperMode = () => {
+    const next = !paperMode;
+    setPaperMode(next);
+    localStorage.setItem("sp_paper_mode", String(next));
+  };
+  const refreshPaperBets = () => setPaperBets(getPaperBets());
+
+  // How it works info dialog
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+
   const [selectedTab, setSelectedTab] = useState("overview");
   const [placeBetOpp, setPlaceBetOpp] = useState<Opportunity | null>(null);
   const [betStake, setBetStake] = useState("");
@@ -146,18 +188,26 @@ export default function Dashboard() {
     const odds1 = parseFloat(placeBetOpp.odds1);
     const odds2 = parseFloat(placeBetOpp.odds2);
     const { stake1, stake2 } = calcArbStakes(odds1, odds2, totalStake);
-    await createBetMutation.mutateAsync({
-      opportunityId: placeBetOpp.id, bookmaker: placeBetOpp.bookmaker1,
-      sport: placeBetOpp.sport, event: String(placeBetOpp.event),
-      market: placeBetOpp.market, outcome: String(placeBetOpp.outcome1),
-      odds: placeBetOpp.odds1, stake: stake1,
-    });
-    await createBetMutation.mutateAsync({
-      opportunityId: placeBetOpp.id, bookmaker: placeBetOpp.bookmaker2,
-      sport: placeBetOpp.sport, event: String(placeBetOpp.event),
-      market: placeBetOpp.market, outcome: String(placeBetOpp.outcome2),
-      odds: placeBetOpp.odds2, stake: stake2,
-    });
+
+    if (paperMode) {
+      // Paper mode — log locally, no real money
+      addPaperBet({ event: String(placeBetOpp.event), bookmaker: placeBetOpp.bookmaker1, odds: odds1, stake: parseFloat(stake1), outcome: String(placeBetOpp.outcome1), status: "pending" });
+      addPaperBet({ event: String(placeBetOpp.event), bookmaker: placeBetOpp.bookmaker2, odds: odds2, stake: parseFloat(stake2), outcome: String(placeBetOpp.outcome2), status: "pending" });
+      refreshPaperBets();
+    } else {
+      await createBetMutation.mutateAsync({
+        opportunityId: placeBetOpp.id, bookmaker: placeBetOpp.bookmaker1,
+        sport: placeBetOpp.sport, event: String(placeBetOpp.event),
+        market: placeBetOpp.market, outcome: String(placeBetOpp.outcome1),
+        odds: placeBetOpp.odds1, stake: stake1,
+      });
+      await createBetMutation.mutateAsync({
+        opportunityId: placeBetOpp.id, bookmaker: placeBetOpp.bookmaker2,
+        sport: placeBetOpp.sport, event: String(placeBetOpp.event),
+        market: placeBetOpp.market, outcome: String(placeBetOpp.outcome2),
+        odds: placeBetOpp.odds2, stake: stake2,
+      });
+    }
     setBetPlaced(true);
     setTimeout(() => { setPlaceBetOpp(null); setBetPlaced(false); setBetStake(""); }, 1800);
   };
@@ -193,10 +243,13 @@ export default function Dashboard() {
   return (
     <div className="-m-4 min-h-screen bg-zinc-950 text-white">
 
+      {/* ── Onboarding ── */}
+      <OnboardingModal open={showOnboarding} onDone={dismissOnboarding} />
+
       {/* ── Top bar ── */}
-      <div className="border-b border-zinc-800 bg-zinc-950 px-4 py-3 flex items-center justify-between">
-        <div>
-          <p className="font-bold text-sm">
+      <div className="border-b border-zinc-800 bg-zinc-950 px-4 py-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-bold text-sm truncate">
             {user?.name?.split(" ")[0] || "Punter"} 👋
           </p>
           <p className="text-[11px] text-zinc-500">
@@ -205,7 +258,21 @@ export default function Dashboard() {
               : "No sync yet"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Paper mode toggle */}
+          <button
+            onClick={togglePaperMode}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all ${
+              paperMode
+                ? "bg-[#C9A227]/15 border-[#C9A227]/40 text-[#C9A227]"
+                : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200"
+            }`}
+            title={paperMode ? "Switch to live mode" : "Switch to paper (practice) mode"}
+          >
+            {paperMode ? <FlaskConical className="h-3.5 w-3.5" /> : <Banknote className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{paperMode ? "Paper" : "Live"}</span>
+          </button>
+
           {notifications && notifications.length > 0 && (
             <div className="relative">
               <Bell className="h-5 w-5 text-zinc-400" />
@@ -214,18 +281,33 @@ export default function Dashboard() {
               </span>
             </div>
           )}
-          <Button
-            size="sm"
-            onClick={handleRefreshData}
-            disabled={triggerImperialIngestion.isPending}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8 px-3"
-          >
-            {triggerImperialIngestion.isPending
-              ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Syncing…</>
-              : <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Refresh</>}
-          </Button>
+
+          {/* Refresh — admin only to preserve API credits */}
+          {isAdmin && (
+            <Button
+              size="sm"
+              onClick={handleRefreshData}
+              disabled={triggerImperialIngestion.isPending}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8 px-3"
+            >
+              {triggerImperialIngestion.isPending
+                ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Syncing…</>
+                : <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Refresh</>}
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* ── Paper mode banner ── */}
+      {paperMode && (
+        <div className="bg-[#C9A227]/10 border-b border-[#C9A227]/30 px-4 py-2 flex items-center gap-2">
+          <FlaskConical className="h-4 w-4 text-[#C9A227] shrink-0" />
+          <p className="text-xs text-[#C9A227] font-medium">
+            <strong>Paper Mode is on</strong> — bets are tracked virtually, no real money involved. Perfect for testing.
+          </p>
+          <button onClick={togglePaperMode} className="ml-auto text-[11px] text-[#C9A227]/70 underline shrink-0">Switch to Live</button>
+        </div>
+      )}
 
       {/* ── Stats strip ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-zinc-800 border-b border-zinc-800">
@@ -463,7 +545,7 @@ export default function Dashboard() {
                             ],
                           })}
                         >
-                          Place Bets
+                          {paperMode ? "Track" : "Place Bets"}
                         </Button>
                       </div>
                       {row.updated_ago && <p className="text-[11px] text-zinc-600 mt-2">Updated: {row.updated_ago}</p>}
@@ -545,7 +627,7 @@ export default function Dashboard() {
                             ],
                           })}
                         >
-                          Place Bets
+                          {paperMode ? "Track" : "Place Bets"}
                         </Button>
                       </div>
                       {row.updated_ago && <p className="text-[11px] text-zinc-600 mt-2">Updated: {row.updated_ago}</p>}
@@ -773,51 +855,140 @@ export default function Dashboard() {
 
         {/* ══════════════ HISTORY ══════════════ */}
         <TabsContent value="history" className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-base text-white">Bet History</h2>
-            <span className="text-xs text-zinc-500">{bets?.length || 0} bets</span>
-          </div>
-
-          {/* Summary row */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            <StatCard label="Total P&L" value={`${isPositive ? "+" : ""}$${stats?.totalProfit || "0.00"}`} positive={isPositive} />
-            <StatCard label="Win Rate" value={`${stats?.winRate || "0"}%`} sub={`${stats?.wonBets || 0} won`} />
-            <StatCard label="Total Bets" value={String((bets?.length || 0))} sub={`${stats?.pendingBets || 0} pending`} />
-          </div>
-
-          {!bets || bets.length === 0 ? (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
-              <Clock className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
-              <p className="text-zinc-400 text-sm">No bets placed yet</p>
-            </div>
-          ) : (
-            <ScrollArea className="h-[calc(100vh-420px)]">
-              <div className="space-y-2 pr-1">
-                {bets.map((bet) => (
-                  <div key={bet.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 flex items-center justify-between">
-                    <div className="flex-1 min-w-0 mr-3">
-                      <p className="font-semibold text-sm text-white truncate">{bet.event}</p>
-                      <p className="text-xs text-zinc-500">{bet.bookmaker} · {bet.sport} · @ {bet.odds}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-                        bet.status === "won"
-                          ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                          : bet.status === "lost"
-                          ? "bg-red-500/20 text-red-400 border-red-500/30"
-                          : "bg-zinc-700/40 text-zinc-400 border-zinc-600/30"
-                      }`}>
-                        {bet.status}
-                      </span>
-                      <p className="text-xs text-zinc-400 mt-0.5">${bet.stake}</p>
-                    </div>
-                  </div>
-                ))}
+          {paperMode ? (
+            // ── Paper trading history ──
+            <>
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="font-bold text-base text-white">Paper Trading History</h2>
+                  <p className="text-xs text-zinc-500">Virtual bets — no real money involved</p>
+                </div>
+                <FlaskConical className="h-5 w-5 text-[#C9A227]" />
               </div>
-            </ScrollArea>
+              {(() => {
+                const won = paperBets.filter(b => b.status === "won");
+                const lost = paperBets.filter(b => b.status === "lost");
+                const virtualPL = won.reduce((s, b) => s + (b.stake * b.odds - b.stake), 0)
+                  - lost.reduce((s, b) => s + b.stake, 0);
+                return (
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <StatCard label="Virtual P&L" value={`${virtualPL >= 0 ? "+" : ""}$${virtualPL.toFixed(2)}`} positive={virtualPL >= 0} />
+                    <StatCard label="Bets Tracked" value={String(paperBets.length)} sub={`${won.length} won · ${lost.length} lost`} />
+                    <StatCard label="Win Rate" value={paperBets.filter(b => b.status !== "pending").length > 0 ? `${Math.round(won.length / paperBets.filter(b => b.status !== "pending").length * 100)}%` : "—"} />
+                  </div>
+                );
+              })()}
+              {paperBets.length === 0 ? (
+                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
+                  <FlaskConical className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
+                  <p className="text-zinc-400 text-sm">No paper bets yet</p>
+                  <p className="text-zinc-600 text-xs mt-1">Tap "Place Bets" on any opportunity to track it here</p>
+                </div>
+              ) : (
+                <ScrollArea className="h-[calc(100vh-420px)]">
+                  <div className="space-y-2 pr-1">
+                    {paperBets.map((bet) => (
+                      <div key={bet.id} className="bg-zinc-900 border border-[#C9A227]/20 rounded-xl p-3 flex items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm text-white truncate">{bet.event}</p>
+                          <p className="text-xs text-zinc-500">{bet.bookmaker} @ {bet.odds} · ${bet.stake}</p>
+                          <p className="text-[11px] text-zinc-600">{new Date(bet.loggedAt).toLocaleDateString()}</p>
+                        </div>
+                        {bet.status === "pending" ? (
+                          <div className="flex gap-1.5 shrink-0">
+                            <button
+                              onClick={() => { settlePaperBet(bet.id, "won"); refreshPaperBets(); }}
+                              className="text-xs px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
+                            >Won</button>
+                            <button
+                              onClick={() => { settlePaperBet(bet.id, "lost"); refreshPaperBets(); }}
+                              className="text-xs px-2 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20"
+                            >Lost</button>
+                          </div>
+                        ) : (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border shrink-0 ${
+                            bet.status === "won"
+                              ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                              : "bg-red-500/20 text-red-400 border-red-500/30"
+                          }`}>{bet.status}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </>
+          ) : (
+            // ── Real bet history ──
+            <>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-bold text-base text-white">Bet History</h2>
+                <span className="text-xs text-zinc-500">{bets?.length || 0} bets</span>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <StatCard label="Total P&L" value={`${isPositive ? "+" : ""}$${stats?.totalProfit || "0.00"}`} positive={isPositive} />
+                <StatCard label="Win Rate" value={`${stats?.winRate || "0"}%`} sub={`${stats?.wonBets || 0} won`} />
+                <StatCard label="Total Bets" value={String((bets?.length || 0))} sub={`${stats?.pendingBets || 0} pending`} />
+              </div>
+              {!bets || bets.length === 0 ? (
+                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
+                  <Clock className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
+                  <p className="text-zinc-400 text-sm">No bets placed yet</p>
+                </div>
+              ) : (
+                <ScrollArea className="h-[calc(100vh-420px)]">
+                  <div className="space-y-2 pr-1">
+                    {bets.map((bet) => (
+                      <div key={bet.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 flex items-center justify-between">
+                        <div className="flex-1 min-w-0 mr-3">
+                          <p className="font-semibold text-sm text-white truncate">{bet.event}</p>
+                          <p className="text-xs text-zinc-500">{bet.bookmaker} · {bet.sport} · @ {bet.odds}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                            bet.status === "won" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                            : bet.status === "lost" ? "bg-red-500/20 text-red-400 border-red-500/30"
+                            : "bg-zinc-700/40 text-zinc-400 border-zinc-600/30"
+                          }`}>{bet.status}</span>
+                          <p className="text-xs text-zinc-400 mt-0.5">${bet.stake}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </>
           )}
         </TabsContent>
       </Tabs>
+
+      {/* ══ HOW IT WORKS DIALOG ══ */}
+      <Dialog open={showHowItWorks} onOpenChange={setShowHowItWorks}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-emerald-400" /> How placing bets works
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-zinc-300 leading-relaxed">
+            <p>Sick Punt is a <strong className="text-white">research and tracking tool</strong>. It never places bets on your behalf and never touches your money.</p>
+            <div className="bg-zinc-800/60 rounded-xl p-3 space-y-2">
+              <p className="font-semibold text-white text-xs uppercase tracking-wide">When you tap "Place Bets":</p>
+              <p>✓ The bet is <strong>logged in your personal history</strong> so you can track your results over time.</p>
+              <p>✓ The bookmaker's website opens in a new tab so you can place the bet yourself.</p>
+              <p>✓ <strong>You are in full control</strong> — nothing happens without you acting on the bookmaker's site.</p>
+            </div>
+            <p className="text-zinc-400 text-xs">All transactions go directly between you and the licensed, regulated bookmaker. Sick Punt is never in the middle.</p>
+            <div className="bg-[#C9A227]/10 border border-[#C9A227]/30 rounded-xl p-3">
+              <p className="font-semibold text-[#C9A227] text-xs mb-1">💡 Not ready for real money?</p>
+              <p className="text-xs text-zinc-300">Enable <strong>Paper Mode</strong> (top of screen) to track predictions virtually — see what you would have won without risking anything.</p>
+            </div>
+          </div>
+          <Button className="w-full bg-emerald-600 hover:bg-emerald-500 text-white mt-2" onClick={() => setShowHowItWorks(false)}>
+            Got it
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       {/* ══════════════════════════════════════════════════════════════
           PLACE BETS DIALOG — Arb tab
@@ -828,8 +999,19 @@ export default function Dashboard() {
       >
         <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
           <DialogHeader>
-            <DialogTitle className="text-white">Place Bets</DialogTitle>
-            <DialogDescription className="text-zinc-400">Log both legs and visit each bookmaker to place your bets.</DialogDescription>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="text-white">
+                {paperMode ? "Track This Bet (Paper)" : "Place Bets"}
+              </DialogTitle>
+              <button onClick={() => setShowHowItWorks(true)} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                <Info className="h-4 w-4" />
+              </button>
+            </div>
+            <DialogDescription className="text-zinc-400">
+              {paperMode
+                ? "This will be logged as a virtual bet — no real money involved."
+                : "Log both legs, then visit each bookmaker's site to place your bets."}
+            </DialogDescription>
           </DialogHeader>
 
           {betPlaced ? (
