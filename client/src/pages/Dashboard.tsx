@@ -6,17 +6,18 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   RefreshCw, CheckCircle, ShieldCheck, Gift, Star, ExternalLink,
   MessageSquare, TrendingUp, TrendingDown, Zap, Layers, BookOpen,
-  Calculator, Clock, LayoutDashboard, AlertCircle, Bell, Info,
-  FlaskConical, Banknote,
+  Calculator, Clock, AlertCircle, Bell, Info,
+  FlaskConical, Banknote, Home, Wrench,
 } from "lucide-react";
 import { BettingChatBox } from "@/components/BettingChatBox";
 import { BettingCalculators } from "@/components/BettingCalculators";
 import { OnboardingModal, useOnboarding } from "@/components/OnboardingModal";
 import type { Opportunity } from "../../../drizzle/schema";
+
+const SICKPUNT_LOGO_URL = "https://i.imgur.com/4k1Ov7i.png";
 
 // ── Paper trading helpers ─────────────────────────────────────────────────────
 const PAPER_KEY = "sp_paper_bets";
@@ -88,37 +89,23 @@ type ConfirmBet = {
   promo?: { name: string; terms: string; bookmaker: string; url: string };
 };
 
-function riskColour(risk: string | null | undefined) {
-  const r = (risk || "").toLowerCase();
-  if (r.includes("low")) return "default";
-  if (r.includes("med")) return "secondary";
-  return "destructive";
-}
-
 function tierColour(tier: string | null | undefined) {
   const t = (tier || "").toLowerCase();
   if (t === "tier 1" || t === "1") return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
   if (t === "tier 2" || t === "2") return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-  return "bg-zinc-700/40 text-zinc-400 border-zinc-600/30";
+  return "bg-slate-700/40 text-slate-400 border-slate-600/30";
 }
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
-function StatCard({ label, value, sub, positive }: { label: string; value: string | number; sub?: string; positive?: boolean }) {
-  return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-      <p className="text-[11px] text-zinc-500 uppercase tracking-widest font-medium">{label}</p>
-      <p className={`text-2xl font-black mt-1.5 ${positive === true ? "text-emerald-400" : positive === false ? "text-red-400" : "text-white"}`}>
-        {value}
-      </p>
-      {sub && <p className="text-xs text-zinc-500 mt-0.5">{sub}</p>}
-    </div>
-  );
-}
+// ── Shared glass card style ───────────────────────────────────────────────────
+const glass = "bg-[rgba(30,41,59,0.4)] backdrop-blur-xl border border-white/5 rounded-2xl";
+const goldText = "text-[#D4AF37]";
+const goldBorder = "border-[#D4AF37]/30";
+const goldBg = "bg-[#D4AF37]";
 
 // ── Odds pill ─────────────────────────────────────────────────────────────────
 function OddsPill({ odds }: { odds: number }) {
   return (
-    <span className="inline-block bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-black text-base px-3 py-0.5 rounded-lg">
+    <span className="inline-block bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] font-black text-sm px-2.5 py-0.5 rounded-lg">
       {odds.toFixed(2)}
     </span>
   );
@@ -127,12 +114,35 @@ function OddsPill({ odds }: { odds: number }) {
 // ── ROI badge ─────────────────────────────────────────────────────────────────
 function RoiBadge({ roi }: { roi: number }) {
   const cls = roi >= 5 ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-    : roi >= 2 ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
-    : "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+    : roi >= 2 ? "bg-[#D4AF37]/20 text-[#D4AF37] border-[#D4AF37]/30"
+    : "bg-slate-700/40 text-slate-400 border-slate-600/30";
   return (
     <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${cls}`}>
       {roi.toFixed(2)}% ROI
     </span>
+  );
+}
+
+// ── Section heading ───────────────────────────────────────────────────────────
+function SectionHeading({ title, count, unit }: { title: string; count?: number; unit?: string }) {
+  return (
+    <div className="flex items-center justify-between mb-3">
+      <h2 className="font-bold text-base text-white">{title}</h2>
+      {count !== undefined && (
+        <span className="text-xs text-slate-500">{count} {unit || ""}</span>
+      )}
+    </div>
+  );
+}
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+function EmptyState({ icon: Icon, message, sub }: { icon: React.ElementType; message: string; sub?: string }) {
+  return (
+    <div className={`${glass} p-8 text-center`}>
+      <Icon className="h-10 w-10 text-slate-600 mx-auto mb-3" />
+      <p className="text-slate-400 text-sm font-medium">{message}</p>
+      {sub && <p className="text-slate-600 text-xs mt-1">{sub}</p>}
+    </div>
   );
 }
 
@@ -156,14 +166,18 @@ export default function Dashboard() {
   // How it works info dialog
   const [showHowItWorks, setShowHowItWorks] = useState(false);
 
-  const [selectedTab, setSelectedTab] = useState("overview");
+  // Navigation
+  const [activeNav, setActiveNav] = useState<"home" | "tools" | "consult" | "history">("home");
+  const [activeTool, setActiveTool] = useState<"sports" | "middles" | "promos" | "books" | "calc">("sports");
+
+  // Bet dialogs
   const [placeBetOpp, setPlaceBetOpp] = useState<Opportunity | null>(null);
   const [betStake, setBetStake] = useState("");
   const [betPlaced, setBetPlaced] = useState(false);
   const [confirmBet, setConfirmBet] = useState<ConfirmBet | null>(null);
 
-  const { data: opportunities, isLoading: opportunitiesLoading, refetch: refetchOpportunities } =
-    trpc.opportunities.list.useQuery();
+  // Data
+  const { data: opportunities, isLoading: opportunitiesLoading } = trpc.opportunities.list.useQuery();
   const { data: bets } = trpc.bets.list.useQuery();
   const { data: stats } = trpc.bets.stats.useQuery();
   const { data: notifications } = trpc.notifications.unread.useQuery();
@@ -190,7 +204,6 @@ export default function Dashboard() {
     const { stake1, stake2 } = calcArbStakes(odds1, odds2, totalStake);
 
     if (paperMode) {
-      // Paper mode — log locally, no real money
       addPaperBet({ event: String(placeBetOpp.event), bookmaker: placeBetOpp.bookmaker1, odds: odds1, stake: parseFloat(stake1), outcome: String(placeBetOpp.outcome1), status: "pending" });
       addPaperBet({ event: String(placeBetOpp.event), bookmaker: placeBetOpp.bookmaker2, odds: odds2, stake: parseFloat(stake2), outcome: String(placeBetOpp.outcome2), status: "pending" });
       refreshPaperBets();
@@ -209,13 +222,20 @@ export default function Dashboard() {
       });
     }
     setBetPlaced(true);
-    setTimeout(() => { setPlaceBetOpp(null); setBetPlaced(false); setBetStake(""); }, 1800);
+    // Open both bookmaker sites so the user can place immediately
+    if (!paperMode) {
+      window.open(getBookmakerUrl(placeBetOpp.bookmaker1), "_blank", "noopener");
+      setTimeout(() => window.open(getBookmakerUrl(placeBetOpp.bookmaker2), "_blank", "noopener"), 400);
+    }
+    setTimeout(() => { setPlaceBetOpp(null); setBetPlaced(false); setBetStake(""); }, 3000);
   };
 
   const handleRefreshData = async () => {
     await triggerImperialIngestion.mutateAsync({ mode: "all", pages: 3 });
-    await Promise.all([refetchImperialStatus(), refetchSportsMax(), refetchMiddleMax(), refetchOpportunities()]);
+    await Promise.all([refetchImperialStatus(), refetchSportsMax(), refetchMiddleMax()]);
   };
+
+  const [showAllPromos, setShowAllPromos] = useState(false);
 
   const promosByBookmaker: Record<string, typeof imperialPromos> = {};
   for (const promo of imperialPromos || []) {
@@ -226,788 +246,865 @@ export default function Dashboard() {
   const getPromoForBookmaker = (name: string) =>
     promosByBookmaker[(name || "").toLowerCase().trim()] ?? [];
 
+  // Split promos into eligible (user has account) vs others
+  const eligiblePromoEntries = Object.entries(promosByBookmaker).filter(([bk]) => userAccountSet.has(bk));
+  const otherPromoEntries = Object.entries(promosByBookmaker).filter(([bk]) => !userAccountSet.has(bk));
+
   const totalPL = parseFloat(stats?.totalProfit || "0");
   const isPositive = totalPL >= 0;
 
-  const tabs = [
-    { value: "overview",  label: "Overview",   icon: LayoutDashboard },
-    { value: "sports",    label: "Sports Max",  icon: Zap             },
-    { value: "middles",   label: "Middles",     icon: Layers          },
-    { value: "promos",    label: "Promos",      icon: Gift            },
-    { value: "books",     label: "Books",       icon: BookOpen        },
-    { value: "chat",      label: "AI Chat",     icon: MessageSquare   },
-    { value: "calc",      label: "Calculator",  icon: Calculator      },
-    { value: "history",   label: "History",     icon: Clock           },
+  // ── Bottom nav items ──
+  const navItems = [
+    { id: "home" as const,    label: "Home",    icon: Home         },
+    { id: "tools" as const,   label: "Tools",   icon: Wrench       },
+    { id: "consult" as const, label: "Consult", icon: MessageSquare },
+    { id: "history" as const, label: "History", icon: Clock        },
+  ];
+
+  const toolTabs = [
+    { id: "sports" as const,  label: "Sports Max", icon: Zap       },
+    { id: "middles" as const, label: "Middles",    icon: Layers    },
+    { id: "promos" as const,  label: "Promos",     icon: Gift      },
+    { id: "books" as const,   label: "Books",      icon: BookOpen  },
+    { id: "calc" as const,    label: "Calc",       icon: Calculator },
   ];
 
   return (
-    <div className="-m-4 min-h-screen bg-zinc-950 text-white">
+    <div className="-m-4 min-h-screen bg-[#020617] text-white pb-20">
 
       {/* ── Onboarding ── */}
       <OnboardingModal open={showOnboarding} onDone={dismissOnboarding} />
 
-      {/* ── Top bar ── */}
-      <div className="border-b border-zinc-800 bg-zinc-950 px-4 py-3 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-bold text-sm truncate">
-            {user?.name?.split(" ")[0] || "Punter"} 👋
-          </p>
-          <p className="text-[11px] text-zinc-500">
-            {imperialStatus?.lastSuccessAt
-              ? `Last sync ${new Date(imperialStatus.lastSuccessAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-              : "No sync yet"}
-          </p>
+      {/* ── Header ── */}
+      <header className="flex items-center justify-between px-4 pt-5 pb-4 border-b border-white/5">
+        <div className="flex items-center gap-3">
+          <img src={SICKPUNT_LOGO_URL} alt="Sick Punt" className="h-9 w-9 rounded-xl object-cover shadow-lg" />
+          <div>
+            <p className="text-[11px] text-slate-500">Welcome back</p>
+            <p className="text-sm font-bold text-white">{user?.name?.split(" ")[0] || "Punter"}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2">
           {/* Paper mode toggle */}
           <button
             onClick={togglePaperMode}
-            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all ${
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-all ${
               paperMode
-                ? "bg-[#C9A227]/15 border-[#C9A227]/40 text-[#C9A227]"
-                : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200"
+                ? `bg-[#D4AF37]/15 border-[#D4AF37]/40 ${goldText}`
+                : "bg-slate-800/60 border-white/5 text-slate-400 hover:text-slate-200"
             }`}
-            title={paperMode ? "Switch to live mode" : "Switch to paper (practice) mode"}
+            title={paperMode ? "Switch to live mode" : "Switch to paper mode"}
           >
             {paperMode ? <FlaskConical className="h-3.5 w-3.5" /> : <Banknote className="h-3.5 w-3.5" />}
-            <span className="hidden sm:inline">{paperMode ? "Paper" : "Live"}</span>
+            <span>{paperMode ? "Paper" : "Live"}</span>
           </button>
 
-          {notifications && notifications.length > 0 && (
-            <div className="relative">
-              <Bell className="h-5 w-5 text-zinc-400" />
-              <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-emerald-500 text-[10px] font-bold flex items-center justify-center text-black">
+          {/* Notifications */}
+          <div className="relative">
+            <button className="p-2 rounded-xl bg-slate-800/60 border border-white/5">
+              <Bell className="h-4 w-4 text-slate-400" />
+            </button>
+            {notifications && notifications.length > 0 && (
+              <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-[#D4AF37] text-[10px] font-bold flex items-center justify-center text-black">
                 {notifications.length}
               </span>
-            </div>
-          )}
-
-          {/* Refresh — admin only to preserve API credits */}
-          {isAdmin && (
-            <Button
-              size="sm"
-              onClick={handleRefreshData}
-              disabled={triggerImperialIngestion.isPending}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8 px-3"
-            >
-              {triggerImperialIngestion.isPending
-                ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Syncing…</>
-                : <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Refresh</>}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Paper mode banner ── */}
-      {paperMode && (
-        <div className="bg-[#C9A227]/10 border-b border-[#C9A227]/30 px-4 py-2 flex items-center gap-2">
-          <FlaskConical className="h-4 w-4 text-[#C9A227] shrink-0" />
-          <p className="text-xs text-[#C9A227] font-medium">
-            <strong>Paper Mode is on</strong> — bets are tracked virtually, no real money involved. Perfect for testing.
-          </p>
-          <button onClick={togglePaperMode} className="ml-auto text-[11px] text-[#C9A227]/70 underline shrink-0">Switch to Live</button>
-        </div>
-      )}
-
-      {/* ── Stats strip ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-zinc-800 border-b border-zinc-800">
-        <div className="bg-zinc-950 p-4">
-          <p className="text-[11px] text-zinc-500 uppercase tracking-widest">Total P&amp;L</p>
-          <p className={`text-2xl font-black mt-1 ${isPositive ? "text-emerald-400" : "text-red-400"}`}>
-            {isPositive ? "+" : ""}${stats?.totalProfit || "0.00"}
-          </p>
-          <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1">
-            {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-            ROI {stats?.roi || "0"}%
-          </p>
-        </div>
-        <div className="bg-zinc-950 p-4">
-          <p className="text-[11px] text-zinc-500 uppercase tracking-widest">Active Bets</p>
-          <p className="text-2xl font-black mt-1 text-white">{stats?.pendingBets || 0}</p>
-          <p className="text-xs text-zinc-500 mt-0.5">Win rate {stats?.winRate || "0"}%</p>
-        </div>
-        <div className="bg-zinc-950 p-4">
-          <p className="text-[11px] text-zinc-500 uppercase tracking-widest">Sports Max</p>
-          <p className="text-2xl font-black mt-1 text-emerald-400">{sportsMax?.length || 0}</p>
-          <p className="text-xs text-zinc-500 mt-0.5">Matched betting opps</p>
-        </div>
-        <div className="bg-zinc-950 p-4">
-          <p className="text-[11px] text-zinc-500 uppercase tracking-widest">Live Promos</p>
-          <p className="text-2xl font-black mt-1 text-emerald-400">{imperialPromos?.length || 0}</p>
-          <p className="text-xs text-zinc-500 mt-0.5">Active bookmaker offers</p>
-        </div>
-      </div>
-
-      {/* ── Tab navigation ── */}
-      <Tabs value={selectedTab} onValueChange={setSelectedTab} className="w-full">
-        <div className="border-b border-zinc-800 bg-zinc-950 overflow-x-auto">
-          <TabsList className="h-auto bg-transparent p-0 rounded-none flex w-max min-w-full">
-            {tabs.map(({ value, label, icon: Icon }) => (
-              <TabsTrigger
-                key={value}
-                value={value}
-                className="flex items-center gap-1.5 px-4 py-3 rounded-none border-b-2 border-transparent
-                  data-[state=active]:border-emerald-500 data-[state=active]:text-emerald-400
-                  data-[state=active]:bg-transparent text-zinc-500 hover:text-zinc-300
-                  text-xs font-semibold transition-colors whitespace-nowrap"
-              >
-                <Icon className="h-3.5 w-3.5" />
-                <span>{label}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </div>
-
-        {/* ══════════════ OVERVIEW ══════════════ */}
-        <TabsContent value="overview" className="p-4 space-y-4">
-          {/* Arb opportunities */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-bold text-base text-white">Arbitrage Opportunities</h2>
-              <span className="text-xs text-zinc-500">From Odds API</span>
-            </div>
-            {opportunitiesLoading ? (
-              <div className="text-center py-8 text-zinc-500 text-sm">Loading…</div>
-            ) : opportunities && opportunities.length > 0 ? (
-              <div className="space-y-3">
-                {opportunities.map((opp) => {
-                  const odds1 = parseFloat(opp.odds1);
-                  const odds2 = parseFloat(opp.odds2);
-                  const stakes = odds1 > 1 && odds2 > 1
-                    ? calcArbStakes(odds1, odds2, parseFloat(opp.recommendedStake) || 100)
-                    : null;
-                  return (
-                    <div key={opp.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                      <div className="flex items-start justify-between gap-2 mb-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-sm text-white truncate">{opp.event}</p>
-                          <p className="text-xs text-zinc-500">{opp.sport} · {opp.market}</p>
-                        </div>
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border shrink-0 ${
-                          parseFloat(opp.roi) >= 5 ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                          : parseFloat(opp.roi) >= 2 ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
-                          : "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
-                        }`}>{opp.roi}% ROI</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 mb-3">
-                        <div className="bg-zinc-800/60 rounded-lg p-3">
-                          <p className="text-[11px] text-zinc-400 font-semibold uppercase tracking-wide">{opp.bookmaker1}</p>
-                          <p className="text-xs text-zinc-500 mt-0.5">{opp.outcome1}</p>
-                          <div className="flex items-center gap-2 mt-1.5">
-                            <OddsPill odds={odds1} />
-                            {stakes && <span className="text-xs text-zinc-400">→ ${stakes.stake1}</span>}
-                          </div>
-                        </div>
-                        <div className="bg-zinc-800/60 rounded-lg p-3">
-                          <p className="text-[11px] text-zinc-400 font-semibold uppercase tracking-wide">{opp.bookmaker2}</p>
-                          <p className="text-xs text-zinc-500 mt-0.5">{opp.outcome2}</p>
-                          <div className="flex items-center gap-2 mt-1.5">
-                            <OddsPill odds={odds2} />
-                            {stakes && <span className="text-xs text-zinc-400">→ ${stakes.stake2}</span>}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between pt-3 border-t border-zinc-800">
-                        {stakes && (
-                          <p className="text-sm font-bold text-emerald-400">+${stakes.profit} guaranteed</p>
-                        )}
-                        <Button
-                          size="sm"
-                          className="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8"
-                          onClick={() => { setPlaceBetOpp(opp); setBetStake(opp.recommendedStake); }}
-                        >
-                          Place Bets
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
-                <AlertCircle className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
-                <p className="text-zinc-400 text-sm font-medium">No arbitrage opportunities found</p>
-                <p className="text-zinc-600 text-xs mt-1">Check Sports Max tab for matched betting opps</p>
-              </div>
             )}
           </div>
 
-          {/* Imperial status */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+          {/* Admin refresh */}
+          {isAdmin && (
+            <button
+              onClick={handleRefreshData}
+              disabled={triggerImperialIngestion.isPending}
+              className="p-2 rounded-xl bg-slate-800/60 border border-white/5 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${triggerImperialIngestion.isPending ? "animate-spin" : ""}`} />
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* ── Paper mode banner ── */}
+      {paperMode && (
+        <div className={`bg-[#D4AF37]/8 border-b border-[#D4AF37]/20 px-4 py-2.5 flex items-center gap-2`}>
+          <FlaskConical className={`h-4 w-4 ${goldText} shrink-0`} />
+          <p className={`text-xs ${goldText} font-medium flex-1`}>
+            <strong>Paper Mode</strong> — tracking bets virtually. No real money.
+          </p>
+          <button onClick={togglePaperMode} className={`text-[11px] ${goldText}/70 underline`}>Go Live</button>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════
+          HOME
+      ════════════════════════════════════════ */}
+      {activeNav === "home" && (
+        <div className="px-4 pt-5 space-y-5">
+
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className={`${glass} p-4`}>
+              <p className="text-[11px] text-slate-500 uppercase tracking-widest font-medium">Total P&L</p>
+              <p className={`text-2xl font-black mt-1.5 ${isPositive ? "text-emerald-400" : "text-red-400"}`}>
+                {isPositive ? "+" : ""}${stats?.totalProfit || "0.00"}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                {isPositive ? <TrendingUp className="h-3 w-3 text-emerald-400" /> : <TrendingDown className="h-3 w-3 text-red-400" />}
+                ROI {stats?.roi || "0"}%
+              </p>
+            </div>
+            <div className={`${glass} p-4`}>
+              <p className="text-[11px] text-slate-500 uppercase tracking-widest font-medium">Active Bets</p>
+              <p className="text-2xl font-black mt-1.5 text-white">{stats?.pendingBets || 0}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Win rate {stats?.winRate || "0"}%</p>
+            </div>
+            <div className={`${glass} p-4`}>
+              <p className="text-[11px] text-slate-500 uppercase tracking-widest font-medium">Sports Max</p>
+              <p className={`text-2xl font-black mt-1.5 ${goldText}`}>{sportsMax?.length || 0}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Matched betting opps</p>
+            </div>
+            <div className={`${glass} p-4`}>
+              <p className="text-[11px] text-slate-500 uppercase tracking-widest font-medium">Live Promos</p>
+              <p className={`text-2xl font-black mt-1.5 ${goldText}`}>{imperialPromos?.length || 0}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Bookmaker offers</p>
+            </div>
+          </div>
+
+          {/* Data sync status */}
+          <div className={`${glass} p-4`}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-sm text-white">Data Sync Status</h3>
+              <h3 className="font-bold text-sm text-white">Data Sync</h3>
               <span className={`text-xs px-2 py-0.5 rounded-full border ${
                 imperialStatus?.isRunning
                   ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
                   : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
               }`}>
-                {imperialStatus?.isRunning ? "Syncing…" : "Idle"}
+                {imperialStatus?.isRunning ? "Syncing…" : "Live"}
               </span>
             </div>
-            <div className="grid grid-cols-3 lg:grid-cols-5 gap-3 text-center mb-3">
+            <div className="grid grid-cols-3 gap-2 text-center mb-3">
               {[
-                ["Odds", imperialStatus?.counts?.oddsComparison],
                 ["Sports Max", imperialStatus?.counts?.sportsMaximiser],
                 ["Middles", imperialStatus?.counts?.middleMaximiser],
                 ["Promos", imperialStatus?.counts?.promotions],
-                ["Bookmakers", imperialStatus?.counts?.bookmakerIntelligence],
               ].map(([label, count]) => (
-                <div key={String(label)} className="bg-zinc-800/60 rounded-lg p-2">
-                  <p className="text-xs text-zinc-500">{label}</p>
+                <div key={String(label)} className="bg-slate-800/50 rounded-xl p-2.5">
+                  <p className="text-[10px] text-slate-500">{label}</p>
                   <p className="text-lg font-black text-white">{count ?? "—"}</p>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-zinc-600">
-              Last success: {imperialStatus?.lastSuccessAt ? new Date(imperialStatus.lastSuccessAt).toLocaleString() : "Never"} · Auto-sync every 15 min
+            <p className="text-xs text-slate-600">
+              Last sync: {imperialStatus?.lastSuccessAt
+                ? new Date(imperialStatus.lastSuccessAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                : "Never"} · Auto-syncs every 15 min
             </p>
             {imperialStatus?.lastError && (
-              <div className="mt-2 p-2 rounded-lg border border-red-500/20 bg-red-500/5">
-                <p className="text-xs text-red-400 font-semibold">⚠ Last sync failed — tap Refresh to try again</p>
+              <div className="mt-2 p-2 rounded-xl border border-red-500/20 bg-red-500/5">
+                <p className="text-xs text-red-400 font-semibold">⚠ Last sync failed — tap Refresh to retry</p>
               </div>
             )}
           </div>
-        </TabsContent>
 
-        {/* ══════════════ SPORTS MAX ══════════════ */}
-        <TabsContent value="sports" className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-base text-white">Sports Maximiser</h2>
-            <span className="text-xs text-zinc-500">{sportsMax?.length || 0} opportunities</span>
-          </div>
-          {!sportsMax || sportsMax.length === 0 ? (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
-              <Zap className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
-              <p className="text-zinc-400 text-sm">No data yet — tap Refresh above</p>
-            </div>
-          ) : (
-            <ScrollArea className="h-[calc(100vh-280px)]">
-              <div className="space-y-3 pr-1">
-                {sportsMax.map((row) => {
-                  const odds1 = Number(row.bet1_odds) || 0;
-                  const odds2 = Number(row.bet2_odds) || 0;
-                  const stakes = odds1 > 1 && odds2 > 1 ? calcArbStakes(odds1, odds2, 100) : null;
-                  const roi = Number(row.roi) || 0;
+          {/* Arbitrage opportunities */}
+          <div>
+            <SectionHeading title="Arbitrage Opportunities" count={opportunities?.length} unit="found" />
+            {opportunitiesLoading ? (
+              <div className="text-center py-8 text-slate-500 text-sm">Scanning…</div>
+            ) : opportunities && opportunities.length > 0 ? (
+              <div className="space-y-3">
+                {opportunities.slice(0, 5).map((opp) => {
+                  const odds1 = parseFloat(opp.odds1);
+                  const odds2 = parseFloat(opp.odds2);
+                  const stakes = odds1 > 1 && odds2 > 1
+                    ? calcArbStakes(odds1, odds2, parseFloat(opp.recommendedStake) || 100)
+                    : null;
+                  const roi = parseFloat(opp.roi);
                   return (
-                    <div key={row.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                    <div key={opp.id} className={`${glass} p-4`}>
                       <div className="flex items-start justify-between gap-2 mb-3">
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-sm text-white truncate">{row.event_name}</p>
-                          <p className="text-xs text-zinc-500">
-                            {row.sport}{row.league ? ` · ${row.league}` : ""}{row.market ? ` · ${row.market}` : ""}
-                          </p>
+                          <p className="font-semibold text-sm text-white truncate">{opp.event}</p>
+                          <p className="text-xs text-slate-500">{opp.sport} · {opp.market}</p>
                         </div>
                         <RoiBadge roi={roi} />
                       </div>
                       <div className="grid grid-cols-2 gap-2 mb-3">
-                        <div className="bg-zinc-800/60 rounded-lg p-3">
-                          <p className="text-[11px] text-zinc-400 font-semibold uppercase tracking-wide">{row.bet1_bookmaker}</p>
-                          <p className="text-xs text-zinc-500 mt-0.5">{row.bet1_name}</p>
+                        <div className="bg-slate-800/50 rounded-xl p-3">
+                          <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide">{opp.bookmaker1}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{opp.outcome1}</p>
                           <div className="flex items-center gap-2 mt-1.5">
                             <OddsPill odds={odds1} />
-                            {stakes && <span className="text-xs text-zinc-400">→ ${stakes.stake1}</span>}
+                            {stakes && <span className="text-xs text-slate-400">→ ${stakes.stake1}</span>}
                           </div>
                         </div>
-                        <div className="bg-zinc-800/60 rounded-lg p-3">
-                          <p className="text-[11px] text-zinc-400 font-semibold uppercase tracking-wide">{row.bet2_bookmaker}</p>
-                          <p className="text-xs text-zinc-500 mt-0.5">{row.bet2_name}</p>
+                        <div className="bg-slate-800/50 rounded-xl p-3">
+                          <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide">{opp.bookmaker2}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{opp.outcome2}</p>
                           <div className="flex items-center gap-2 mt-1.5">
                             <OddsPill odds={odds2} />
-                            {stakes && <span className="text-xs text-zinc-400">→ ${stakes.stake2}</span>}
+                            {stakes && <span className="text-xs text-slate-400">→ ${stakes.stake2}</span>}
                           </div>
                         </div>
                       </div>
-                      {stakes && (
-                        <p className="text-xs text-emerald-400 font-semibold mb-2">Guaranteed profit on $100: +${stakes.profit}</p>
-                      )}
-                      <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
-                        <div className="flex gap-1.5 flex-wrap">
-                          {[row.bet1_bookmaker, row.bet2_bookmaker].filter(Boolean).map((bk) => {
-                            const has = userAccountSet.has((bk ?? "").toLowerCase().trim());
-                            return (
-                              <span key={bk} className={`text-[11px] px-2 py-0.5 rounded-full border ${
-                                has ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                                    : "bg-zinc-800 border-zinc-700 text-zinc-500"
-                              }`}>
-                                {bk}: {has ? "✓" : "No acct"}
-                              </span>
-                            );
-                          })}
-                        </div>
-                        <Button
-                          size="sm"
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8 ml-2 shrink-0"
-                          onClick={() => setConfirmBet({
-                            type: "standard", eventName: row.event_name || "",
-                            legs: [
-                              { bookmaker: row.bet1_bookmaker || "", odds: odds1, outcome: row.bet1_name || "", url: getBookmakerUrl(row.bet1_bookmaker || "") },
-                              { bookmaker: row.bet2_bookmaker || "", odds: odds2, outcome: row.bet2_name || "", url: getBookmakerUrl(row.bet2_bookmaker || "") },
-                            ],
-                          })}
+                      <div className="flex items-center justify-between pt-3 border-t border-white/5">
+                        {stakes && (
+                          <p className="text-sm font-bold text-emerald-400">+${stakes.profit} guaranteed</p>
+                        )}
+                        <button
+                          className={`ml-auto ${goldBg} text-black text-xs font-bold px-4 py-2 rounded-xl shadow-[0_0_16px_rgba(212,175,55,0.3)] hover:opacity-90 transition-opacity`}
+                          onClick={() => { setPlaceBetOpp(opp); setBetStake(opp.recommendedStake); }}
                         >
-                          {paperMode ? "Track" : "Place Bets"}
-                        </Button>
+                          Place Bets
+                        </button>
                       </div>
-                      {row.updated_ago && <p className="text-[11px] text-zinc-600 mt-2">Updated: {row.updated_ago}</p>}
                     </div>
                   );
                 })}
+                {opportunities.length > 5 && (
+                  <p className="text-center text-xs text-slate-500">{opportunities.length - 5} more opportunities</p>
+                )}
               </div>
-            </ScrollArea>
-          )}
-        </TabsContent>
-
-        {/* ══════════════ MIDDLES ══════════════ */}
-        <TabsContent value="middles" className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-base text-white">Middle Maximiser</h2>
-            <span className="text-xs text-zinc-500">{middleMax?.length || 0} opportunities</span>
+            ) : (
+              <EmptyState icon={AlertCircle} message="No arbitrage opportunities found" sub="Check Sports Max in Tools for matched betting opps" />
+            )}
           </div>
-          {!middleMax || middleMax.length === 0 ? (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
-              <Layers className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
-              <p className="text-zinc-400 text-sm">No data yet — tap Refresh above</p>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════
+          TOOLS
+      ════════════════════════════════════════ */}
+      {activeNav === "tools" && (
+        <div className="flex flex-col">
+          {/* Tool sub-nav */}
+          <div className="overflow-x-auto border-b border-white/5 bg-[#020617] sticky top-0 z-10">
+            <div className="flex px-4 pt-3 pb-0 gap-1 w-max min-w-full">
+              {toolTabs.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveTool(id)}
+                  className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+                    activeTool === id
+                      ? `${goldText} border-[#D4AF37]`
+                      : "text-slate-500 border-transparent hover:text-slate-300"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
             </div>
-          ) : (
-            <ScrollArea className="h-[calc(100vh-280px)]">
-              <div className="space-y-3 pr-1">
-                {middleMax.map((row) => {
-                  const odds1 = Number(row.bet1_odds) || 0;
-                  const odds2 = Number(row.bet2_odds) || 0;
-                  const risk = Number(row.risk_pct) || 0;
-                  return (
-                    <div key={row.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                      <div className="flex items-start justify-between gap-2 mb-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-sm text-white truncate">{row.event_name}</p>
-                          <p className="text-xs text-zinc-500">
-                            {row.sport}{row.league ? ` · ${row.league}` : ""}{row.market ? ` · ${row.market}` : ""}
-                          </p>
+          </div>
+
+          {/* ── Sports Max ── */}
+          {activeTool === "sports" && (
+            <div className="px-4 pt-5">
+              <SectionHeading title="Sports Maximiser" count={sportsMax?.length} unit="opportunities" />
+              {!sportsMax || sportsMax.length === 0 ? (
+                <EmptyState icon={Zap} message="No data yet" sub="Admin can tap Refresh to sync data" />
+              ) : (
+                <div className="space-y-3 pb-4">
+                  {sportsMax.map((row) => {
+                    const odds1 = Number(row.bet1_odds) || 0;
+                    const odds2 = Number(row.bet2_odds) || 0;
+                    const stakes = odds1 > 1 && odds2 > 1 ? calcArbStakes(odds1, odds2, 100) : null;
+                    const roi = Number(row.roi) || 0;
+                    return (
+                      <div key={row.id} className={`${glass} p-4`}>
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm text-white truncate">{row.event_name}</p>
+                            <p className="text-xs text-slate-500">
+                              {row.sport}{row.league ? ` · ${row.league}` : ""}{row.market ? ` · ${row.market}` : ""}
+                            </p>
+                          </div>
+                          <RoiBadge roi={roi} />
                         </div>
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-                          risk <= 5 ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                          : risk <= 15 ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
-                          : "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
-                        }`}>{risk.toFixed(1)}% risk</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 mb-3">
-                        <div className="bg-zinc-800/60 rounded-lg p-3">
-                          <p className="text-[11px] text-zinc-400 font-semibold uppercase tracking-wide">{row.bet1_bookmaker}</p>
-                          <p className="text-xs text-zinc-500 mt-0.5">{row.bet1_name}</p>
-                          <OddsPill odds={odds1} />
-                        </div>
-                        <div className="bg-zinc-800/60 rounded-lg p-3">
-                          <p className="text-[11px] text-zinc-400 font-semibold uppercase tracking-wide">{row.bet2_bookmaker}</p>
-                          <p className="text-xs text-zinc-500 mt-0.5">{row.bet2_name}</p>
-                          <OddsPill odds={odds2} />
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
-                        <div className="flex gap-1.5 flex-wrap">
-                          {[row.bet1_bookmaker, row.bet2_bookmaker].filter(Boolean).map((bk) => {
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                          {[
+                            { bk: row.bet1_bookmaker, name: row.bet1_name, odds: odds1, stake: stakes?.stake1 },
+                            { bk: row.bet2_bookmaker, name: row.bet2_name, odds: odds2, stake: stakes?.stake2 },
+                          ].map(({ bk, name, odds, stake }) => {
                             const has = userAccountSet.has((bk ?? "").toLowerCase().trim());
+                            const url = getBookmakerUrl(bk || "");
                             return (
-                              <span key={bk} className={`text-[11px] px-2 py-0.5 rounded-full border ${
-                                has ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                                    : "bg-zinc-800 border-zinc-700 text-zinc-500"
-                              }`}>
-                                {bk}: {has ? "✓" : "No acct"}
-                              </span>
+                              <a key={bk} href={url} target="_blank" rel="noopener noreferrer"
+                                className="bg-slate-800/50 hover:bg-slate-700/60 rounded-xl p-3 block transition-colors group">
+                                <div className="flex items-center justify-between mb-1">
+                                  <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide">{bk}</p>
+                                  <ExternalLink className="h-3 w-3 text-slate-600 group-hover:text-[#D4AF37] transition-colors" />
+                                </div>
+                                <p className="text-xs text-slate-500">{name}</p>
+                                <div className="flex items-center gap-2 mt-1.5">
+                                  <OddsPill odds={odds} />
+                                  {stake && <span className="text-xs text-slate-400">→ ${stake}</span>}
+                                </div>
+                                <p className={`text-[10px] mt-1.5 font-semibold ${has ? "text-emerald-400" : "text-slate-600"}`}>
+                                  {has ? "✓ You have an account" : "No account yet"}
+                                </p>
+                              </a>
                             );
                           })}
                         </div>
-                        <Button
-                          size="sm"
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8 ml-2 shrink-0"
-                          onClick={() => setConfirmBet({
-                            type: "standard", eventName: row.event_name || "",
-                            legs: [
-                              { bookmaker: row.bet1_bookmaker || "", odds: odds1, outcome: row.bet1_name || "", url: getBookmakerUrl(row.bet1_bookmaker || "") },
-                              { bookmaker: row.bet2_bookmaker || "", odds: odds2, outcome: row.bet2_name || "", url: getBookmakerUrl(row.bet2_bookmaker || "") },
-                            ],
-                          })}
-                        >
-                          {paperMode ? "Track" : "Place Bets"}
-                        </Button>
+                        {stakes && (
+                          <p className="text-xs text-emerald-400 font-semibold mb-2">Guaranteed profit on $100: +${stakes.profit}</p>
+                        )}
+                        <div className="flex items-center justify-end pt-2 border-t border-white/5">
+                          <button
+                            className={`${goldBg} text-black text-xs font-bold px-4 py-2 rounded-xl shadow-[0_0_12px_rgba(212,175,55,0.25)] hover:opacity-90 transition-opacity`}
+                            onClick={() => setConfirmBet({
+                              type: "standard", eventName: row.event_name || "",
+                              legs: [
+                                { bookmaker: row.bet1_bookmaker || "", odds: odds1, outcome: row.bet1_name || "", url: getBookmakerUrl(row.bet1_bookmaker || "") },
+                                { bookmaker: row.bet2_bookmaker || "", odds: odds2, outcome: row.bet2_name || "", url: getBookmakerUrl(row.bet2_bookmaker || "") },
+                              ],
+                            })}
+                          >
+                            {paperMode ? "Track Bet" : "Place Bets"}
+                          </button>
+                        </div>
+                        {row.updated_ago && <p className="text-[11px] text-slate-600 mt-2">Updated: {row.updated_ago}</p>}
                       </div>
-                      {row.updated_ago && <p className="text-[11px] text-zinc-600 mt-2">Updated: {row.updated_ago}</p>}
-                    </div>
-                  );
-                })}
-              </div>
-            </ScrollArea>
-          )}
-        </TabsContent>
-
-        {/* ══════════════ PROMOS ══════════════ */}
-        <TabsContent value="promos" className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-base text-white">Current Promotions</h2>
-            <span className="text-xs text-zinc-500">{imperialPromos?.length || 0} promos</span>
-          </div>
-          {!imperialPromos || imperialPromos.length === 0 ? (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
-              <Gift className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
-              <p className="text-zinc-400 text-sm">No promos yet — tap Refresh above</p>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          ) : (
-            <ScrollArea className="h-[calc(100vh-280px)]">
-              <div className="space-y-4 pr-1">
-                {Object.entries(promosByBookmaker).map(([bookmakerKey, promos]) => {
-                  const bookmaker = promos?.[0]?.bookmaker || bookmakerKey;
-                  const hasAccount = userAccountSet.has(bookmakerKey);
-                  const intelRow = (imperialBookmakers || []).find(
-                    (b) => b.bookmaker_name.toLowerCase().trim() === bookmakerKey
-                  );
-                  return (
-                    <div key={bookmaker} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                      <div className="flex items-center gap-2 mb-3 flex-wrap">
-                        <h3 className="font-bold text-sm text-white">{bookmaker}</h3>
-                        <span className={`text-[11px] px-2 py-0.5 rounded-full border ${
-                          hasAccount
-                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                            : "bg-zinc-800 border-zinc-700 text-zinc-500"
-                        }`}>
-                          {hasAccount ? "✓ Account" : "No account"}
-                        </span>
-                        {intelRow?.tier && (
-                          <span className={`text-[11px] px-2 py-0.5 rounded border font-medium ${tierColour(intelRow.tier)}`}>
-                            {intelRow.tier}
-                          </span>
-                        )}
-                        {intelRow?.promo_ban_risk && (
-                          <span className={`text-[11px] px-2 py-0.5 rounded-full border ${
-                            intelRow.promo_ban_risk.toLowerCase().includes("low")
-                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                              : "bg-red-500/10 border-red-500/30 text-red-400"
-                          }`}>
-                            Ban risk: {intelRow.promo_ban_risk}
-                          </span>
-                        )}
+          )}
+
+          {/* ── Middles ── */}
+          {activeTool === "middles" && (
+            <div className="px-4 pt-5">
+              <SectionHeading title="Middle Maximiser" count={middleMax?.length} unit="opportunities" />
+              {!middleMax || middleMax.length === 0 ? (
+                <EmptyState icon={Layers} message="No data yet" sub="Admin can tap Refresh to sync data" />
+              ) : (
+                <div className="space-y-3 pb-4">
+                  {middleMax.map((row) => {
+                    const odds1 = Number(row.bet1_odds) || 0;
+                    const odds2 = Number(row.bet2_odds) || 0;
+                    const risk = Number(row.risk_pct) || 0;
+                    return (
+                      <div key={row.id} className={`${glass} p-4`}>
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm text-white truncate">{row.event_name}</p>
+                            <p className="text-xs text-slate-500">
+                              {row.sport}{row.league ? ` · ${row.league}` : ""}{row.market ? ` · ${row.market}` : ""}
+                            </p>
+                          </div>
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                            risk <= 5 ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                            : risk <= 15 ? "bg-[#D4AF37]/20 text-[#D4AF37] border-[#D4AF37]/30"
+                            : "bg-slate-700/40 text-slate-400 border-slate-600/30"
+                          }`}>{risk.toFixed(1)}% risk</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                          {[
+                            { bk: row.bet1_bookmaker, name: row.bet1_name, odds: odds1 },
+                            { bk: row.bet2_bookmaker, name: row.bet2_name, odds: odds2 },
+                          ].map(({ bk, name, odds }) => {
+                            const has = userAccountSet.has((bk ?? "").toLowerCase().trim());
+                            const url = getBookmakerUrl(bk || "");
+                            return (
+                              <a key={bk} href={url} target="_blank" rel="noopener noreferrer"
+                                className="bg-slate-800/50 hover:bg-slate-700/60 rounded-xl p-3 block transition-colors group">
+                                <div className="flex items-center justify-between mb-1">
+                                  <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide">{bk}</p>
+                                  <ExternalLink className="h-3 w-3 text-slate-600 group-hover:text-[#D4AF37] transition-colors" />
+                                </div>
+                                <p className="text-xs text-slate-500">{name}</p>
+                                <OddsPill odds={odds} />
+                                <p className={`text-[10px] mt-1.5 font-semibold ${has ? "text-emerald-400" : "text-slate-600"}`}>
+                                  {has ? "✓ You have an account" : "No account yet"}
+                                </p>
+                              </a>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center justify-end pt-2 border-t border-white/5">
+                          <button
+                            className={`${goldBg} text-black text-xs font-bold px-4 py-2 rounded-xl shadow-[0_0_12px_rgba(212,175,55,0.25)] hover:opacity-90 transition-opacity`}
+                            onClick={() => setConfirmBet({
+                              type: "standard", eventName: row.event_name || "",
+                              legs: [
+                                { bookmaker: row.bet1_bookmaker || "", odds: odds1, outcome: row.bet1_name || "", url: getBookmakerUrl(row.bet1_bookmaker || "") },
+                                { bookmaker: row.bet2_bookmaker || "", odds: odds2, outcome: row.bet2_name || "", url: getBookmakerUrl(row.bet2_bookmaker || "") },
+                              ],
+                            })}
+                          >
+                            {paperMode ? "Track Bet" : "Place Bets"}
+                          </button>
+                        </div>
+                        {row.updated_ago && <p className="text-[11px] text-slate-600 mt-2">Updated: {row.updated_ago}</p>}
                       </div>
-                      <div className="space-y-2">
-                        {(promos || []).map((promo) => (
-                          <div key={promo.id} className="bg-zinc-800/60 rounded-lg p-3 flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              {promo.track && promo.track.length < 60 && (
-                                <p className="text-[11px] text-zinc-500 mb-0.5">{promo.track}{promo.races ? ` · ${promo.races}` : ""}</p>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Promos ── */}
+          {activeTool === "promos" && (
+            <div className="px-4 pt-5">
+              {!imperialPromos || imperialPromos.length === 0 ? (
+                <EmptyState icon={Gift} message="No promos yet" sub="Admin can tap Refresh to sync data" />
+              ) : (
+                <>
+                  {/* Header + toggle */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="font-bold text-base text-white">
+                        {showAllPromos ? "All Promotions" : "Your Eligible Promotions"}
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        {showAllPromos
+                          ? `${imperialPromos.length} total across all bookmakers`
+                          : eligiblePromoEntries.length > 0
+                            ? `${eligiblePromoEntries.reduce((n, [, p]) => n + (p?.length || 0), 0)} promos for your ${eligiblePromoEntries.length} accounts`
+                            : "Add bookmaker accounts to see eligible promos"}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShowAllPromos(!showAllPromos)}
+                      className="text-xs text-slate-400 border border-white/10 rounded-xl px-3 py-1.5 hover:text-white transition-colors shrink-0"
+                    >
+                      {showAllPromos ? "My promos" : "See all"}
+                    </button>
+                  </div>
+
+                  {/* No eligible accounts message */}
+                  {!showAllPromos && eligiblePromoEntries.length === 0 && (
+                    <div className={`${glass} p-6 text-center mb-4`}>
+                      <Gift className="h-8 w-8 text-slate-600 mx-auto mb-2" />
+                      <p className="text-slate-400 text-sm font-medium">No eligible promos yet</p>
+                      <p className="text-slate-600 text-xs mt-1">Add your bookmaker accounts in the Books tab to see personalised promos</p>
+                      <button onClick={() => setShowAllPromos(true)} className={`mt-3 text-xs ${goldText} underline`}>
+                        View all {imperialPromos.length} promos anyway
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Promo groups */}
+                  <div className="space-y-4 pb-4">
+                    {(showAllPromos ? Object.entries(promosByBookmaker) : eligiblePromoEntries).map(([bookmakerKey, promos]) => {
+                      const bookmaker = promos?.[0]?.bookmaker || bookmakerKey;
+                      const hasAccount = userAccountSet.has(bookmakerKey);
+                      const bkUrl = getBookmakerUrl(bookmaker);
+                      const intelRow = (imperialBookmakers || []).find(
+                        (b) => b.bookmaker_name.toLowerCase().trim() === bookmakerKey
+                      );
+                      return (
+                        <div key={bookmaker} className={`${glass} ${hasAccount ? "border-emerald-500/10" : ""} p-4`}>
+                          {/* Bookmaker header with direct link */}
+                          <div className="flex items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                              <h3 className="font-bold text-sm text-white">{bookmaker}</h3>
+                              {hasAccount && (
+                                <span className="text-[11px] px-2 py-0.5 rounded-full border bg-emerald-500/10 border-emerald-500/30 text-emerald-400">
+                                  ✓ Your account
+                                </span>
                               )}
-                              <p className="text-sm font-medium text-white">{promo.promotion}</p>
-                              {promo.track && promo.track.length >= 60 && (
-                                <p className="text-xs text-zinc-500 mt-1 italic">{promo.track}</p>
+                              {intelRow?.tier && (
+                                <span className={`text-[11px] px-2 py-0.5 rounded border font-medium ${tierColour(intelRow.tier)}`}>
+                                  {intelRow.tier}
+                                </span>
+                              )}
+                              {intelRow?.promo_ban_risk && (
+                                <span className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                                  intelRow.promo_ban_risk.toLowerCase().includes("low")
+                                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                                    : "bg-red-500/10 border-red-500/30 text-red-400"
+                                }`}>
+                                  Ban risk: {intelRow.promo_ban_risk}
+                                </span>
                               )}
                             </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="shrink-0 border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-xs h-7"
-                              onClick={() => setConfirmBet({
-                                type: "promo",
-                                eventName: `${bookmaker} promotion`,
-                                legs: [],
-                                promo: {
-                                  name: promo.promotion || "",
-                                  terms: promo.track && promo.track.length >= 60 ? promo.track : (promo.races || ""),
-                                  bookmaker,
-                                  url: getBookmakerUrl(bookmaker),
-                                },
-                              })}
+                            <a
+                              href={bkUrl} target="_blank" rel="noopener noreferrer"
+                              className={`shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl ${
+                                hasAccount
+                                  ? `${goldBg} text-black shadow-[0_0_10px_rgba(212,175,55,0.2)]`
+                                  : "bg-slate-700/60 border border-white/5 text-slate-300"
+                              } hover:opacity-90 transition-opacity`}
                             >
-                              Claim
-                            </Button>
+                              Open <ExternalLink className="h-3 w-3" />
+                            </a>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </ScrollArea>
-          )}
-        </TabsContent>
 
-        {/* ══════════════ BOOKS ══════════════ */}
-        <TabsContent value="books" className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-base text-white">Bookmaker Intelligence</h2>
-            <span className="text-xs text-zinc-500">{imperialBookmakers?.length || 0} bookmakers</span>
-          </div>
-          {!imperialBookmakers || imperialBookmakers.length === 0 ? (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
-              <ShieldCheck className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
-              <p className="text-zinc-400 text-sm">No data yet — tap Refresh above</p>
+                          {/* Individual promos */}
+                          <div className="space-y-2">
+                            {(promos || []).map((promo) => (
+                              <div key={promo.id} className="bg-slate-800/50 rounded-xl p-3 flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  {promo.track && promo.track.length < 60 && (
+                                    <p className="text-[11px] text-slate-500 mb-0.5">{promo.track}{promo.races ? ` · ${promo.races}` : ""}</p>
+                                  )}
+                                  <p className="text-sm font-medium text-white">{promo.promotion}</p>
+                                  {promo.track && promo.track.length >= 60 && (
+                                    <p className="text-xs text-slate-500 mt-1 italic">{promo.track}</p>
+                                  )}
+                                </div>
+                                <a
+                                  href={bkUrl} target="_blank" rel="noopener noreferrer"
+                                  className="shrink-0 bg-slate-700/60 border border-white/5 text-slate-300 hover:text-white text-xs px-3 py-1.5 rounded-xl transition-colors flex items-center gap-1"
+                                >
+                                  Claim <ExternalLink className="h-3 w-3" />
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Show other promos hint */}
+                  {!showAllPromos && otherPromoEntries.length > 0 && (
+                    <button onClick={() => setShowAllPromos(true)} className="w-full text-center text-xs text-slate-500 py-3 hover:text-slate-300 transition-colors">
+                      + {otherPromoEntries.length} more bookmakers with promos (no account) — tap to see all
+                    </button>
+                  )}
+                </>
+              )}
             </div>
-          ) : (
-            <ScrollArea className="h-[calc(100vh-280px)]">
-              <div className="space-y-3 pr-1">
-                {imperialBookmakers.map((bk) => {
-                  const hasAccount = userAccountSet.has(bk.bookmaker_name.toLowerCase().trim());
-                  const userAcc = (userBookmakers || []).find(
-                    (a) => a.bookmaker.toLowerCase().trim() === bk.bookmaker_name.toLowerCase().trim()
-                  );
-                  return (
-                    <div key={bk.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-bold text-sm text-white">{bk.bookmaker_name}</h3>
-                            {bk.tier && (
-                              <span className={`text-[11px] px-2 py-0.5 rounded border font-medium ${tierColour(bk.tier)}`}>
-                                {bk.tier}
-                              </span>
-                            )}
-                            {bk.importance && (
-                              <span className="text-[11px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-400">
-                                {bk.importance}
+          )}
+
+          {/* ── Books ── */}
+          {activeTool === "books" && (
+            <div className="px-4 pt-5">
+              <SectionHeading title="Bookmaker Intelligence" count={imperialBookmakers?.length} unit="bookmakers" />
+              {!imperialBookmakers || imperialBookmakers.length === 0 ? (
+                <EmptyState icon={ShieldCheck} message="No data yet" sub="Admin can tap Refresh to sync data" />
+              ) : (
+                <div className="space-y-3 pb-4">
+                  {imperialBookmakers.map((bk) => {
+                    const hasAccount = userAccountSet.has(bk.bookmaker_name.toLowerCase().trim());
+                    const userAcc = (userBookmakers || []).find(
+                      (a) => a.bookmaker.toLowerCase().trim() === bk.bookmaker_name.toLowerCase().trim()
+                    );
+                    return (
+                      <div key={bk.id} className={`${glass} p-4`}>
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-bold text-sm text-white">{bk.bookmaker_name}</h3>
+                              {bk.tier && (
+                                <span className={`text-[11px] px-2 py-0.5 rounded border font-medium ${tierColour(bk.tier)}`}>
+                                  {bk.tier}
+                                </span>
+                              )}
+                              {bk.importance && (
+                                <span className="text-[11px] px-2 py-0.5 rounded border border-white/5 text-slate-400">
+                                  {bk.importance}
+                                </span>
+                              )}
+                            </div>
+                            {bk.platform && <p className="text-xs text-slate-500 mt-0.5">{bk.platform}</p>}
+                          </div>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                              hasAccount
+                                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                                : "bg-slate-800/60 border-white/5 text-slate-500"
+                            }`}>
+                              {hasAccount ? "✓ Account" : "No account"}
+                            </span>
+                            {userAcc?.healthScore != null && (
+                              <span className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                                userAcc.healthScore >= 80
+                                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                                  : "bg-red-500/10 border-red-500/30 text-red-400"
+                              }`}>
+                                Health {userAcc.healthScore}/100
                               </span>
                             )}
                           </div>
-                          {bk.platform && <p className="text-xs text-zinc-500 mt-0.5">{bk.platform}</p>}
                         </div>
-                        <div className="flex flex-col items-end gap-1 shrink-0">
-                          <span className={`text-[11px] px-2 py-0.5 rounded-full border ${
-                            hasAccount
-                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                              : "bg-zinc-800 border-zinc-700 text-zinc-500"
-                          }`}>
-                            {hasAccount ? "✓ Account" : "No account"}
-                          </span>
-                          {userAcc?.healthScore != null && (
-                            <span className={`text-[11px] px-2 py-0.5 rounded-full border ${
-                              userAcc.healthScore >= 80
-                                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                                : "bg-red-500/10 border-red-500/30 text-red-400"
-                            }`}>
-                              Health {userAcc.healthScore}/100
-                            </span>
+                        <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                          {bk.promo_ban_risk && (
+                            <div className="bg-slate-800/50 rounded-xl p-2">
+                              <p className="text-slate-500">Promo ban risk</p>
+                              <p className={`font-semibold mt-0.5 ${
+                                bk.promo_ban_risk.toLowerCase().includes("low") ? "text-emerald-400" : "text-red-400"
+                              }`}>{bk.promo_ban_risk}</p>
+                            </div>
+                          )}
+                          {bk.signup_bonus && (
+                            <div className="bg-slate-800/50 rounded-xl p-2">
+                              <p className="text-slate-500">Sign-up bonus</p>
+                              <p className="font-semibold mt-0.5 text-emerald-400">{bk.signup_bonus}</p>
+                            </div>
+                          )}
+                          {bk.promo_offering && (
+                            <div className="bg-slate-800/50 rounded-xl p-2">
+                              <p className="text-slate-500">Promos</p>
+                              <p className="font-semibold mt-0.5 text-white">{bk.promo_offering}</p>
+                            </div>
+                          )}
+                          {bk.odds_boost && (
+                            <div className="bg-slate-800/50 rounded-xl p-2">
+                              <p className="text-slate-500">Odds boost</p>
+                              <p className="font-semibold mt-0.5 text-white">{bk.odds_boost}</p>
+                            </div>
                           )}
                         </div>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mb-3">
-                        {bk.promo_ban_risk && (
-                          <div className="bg-zinc-800/60 rounded-lg p-2">
-                            <p className="text-zinc-500">Promo ban risk</p>
-                            <p className={`font-semibold mt-0.5 ${
-                              bk.promo_ban_risk.toLowerCase().includes("low") ? "text-emerald-400" : "text-red-400"
-                            }`}>{bk.promo_ban_risk}</p>
+                        {!hasAccount && bk.signup_offers && (
+                          <div className="bg-[#D4AF37]/5 border border-[#D4AF37]/20 rounded-xl p-2 text-xs text-[#D4AF37]">
+                            <Star className="h-3 w-3 inline mr-1" />
+                            <strong>Sign-up offer:</strong> {bk.signup_offers}
                           </div>
                         )}
-                        {bk.signup_bonus && (
-                          <div className="bg-zinc-800/60 rounded-lg p-2">
-                            <p className="text-zinc-500">Sign-up bonus</p>
-                            <p className="font-semibold mt-0.5 text-emerald-400">{bk.signup_bonus}</p>
-                          </div>
-                        )}
-                        {bk.promo_offering && (
-                          <div className="bg-zinc-800/60 rounded-lg p-2">
-                            <p className="text-zinc-500">Promos</p>
-                            <p className="font-semibold mt-0.5 text-white">{bk.promo_offering}</p>
-                          </div>
-                        )}
-                        {bk.odds_boost && (
-                          <div className="bg-zinc-800/60 rounded-lg p-2">
-                            <p className="text-zinc-500">Odds boost</p>
-                            <p className="font-semibold mt-0.5 text-white">{bk.odds_boost}</p>
+                        {getPromoForBookmaker(bk.bookmaker_name).length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-white/5">
+                            <p className="text-[11px] text-slate-500 mb-1">
+                              {getPromoForBookmaker(bk.bookmaker_name).length} current promo(s)
+                            </p>
+                            <div className="space-y-0.5">
+                              {getPromoForBookmaker(bk.bookmaker_name).slice(0, 2).map((p) => (
+                                <p key={p.id} className="text-xs text-slate-400 leading-snug truncate">{p.promotion}</p>
+                              ))}
+                              {getPromoForBookmaker(bk.bookmaker_name).length > 2 && (
+                                <button onClick={() => { setActiveTool("promos"); setShowAllPromos(true); }} className={`text-xs ${goldText} underline`}>
+                                  +{getPromoForBookmaker(bk.bookmaker_name).length - 2} more
+                                </button>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
-                      {!hasAccount && bk.signup_offers && (
-                        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-2 text-xs text-emerald-400">
-                          <Star className="h-3 w-3 inline mr-1" />
-                          <strong>Sign-up offer:</strong> {bk.signup_offers}
-                        </div>
-                      )}
-                      {getPromoForBookmaker(bk.bookmaker_name).length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-zinc-800">
-                          <p className="text-[11px] text-zinc-500 mb-1">
-                            {getPromoForBookmaker(bk.bookmaker_name).length} current promo(s)
-                          </p>
-                          <div className="space-y-0.5">
-                            {getPromoForBookmaker(bk.bookmaker_name).slice(0, 2).map((p) => (
-                              <p key={p.id} className="text-xs text-zinc-400 leading-snug truncate">{p.promotion}</p>
-                            ))}
-                            {getPromoForBookmaker(bk.bookmaker_name).length > 2 && (
-                              <button onClick={() => setSelectedTab("promos")} className="text-xs text-emerald-400 underline">
-                                +{getPromoForBookmaker(bk.bookmaker_name).length - 2} more
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </ScrollArea>
-          )}
-        </TabsContent>
-
-        {/* ══════════════ AI CHAT ══════════════ */}
-        <TabsContent value="chat" className="p-0 flex flex-col" style={{ height: "calc(100vh - 200px)" }}>
-          <BettingChatBox />
-        </TabsContent>
-
-        {/* ══════════════ CALCULATOR ══════════════ */}
-        <TabsContent value="calc" className="p-4">
-          <h2 className="font-bold text-base text-white mb-4">Betting Calculators</h2>
-          <BettingCalculators />
-        </TabsContent>
-
-        {/* ══════════════ HISTORY ══════════════ */}
-        <TabsContent value="history" className="p-4">
-          {paperMode ? (
-            // ── Paper trading history ──
-            <>
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h2 className="font-bold text-base text-white">Paper Trading History</h2>
-                  <p className="text-xs text-zinc-500">Virtual bets — no real money involved</p>
+                    );
+                  })}
                 </div>
-                <FlaskConical className="h-5 w-5 text-[#C9A227]" />
+              )}
+            </div>
+          )}
+
+          {/* ── Calculator ── */}
+          {activeTool === "calc" && (
+            <div className="px-4 pt-5 pb-4">
+              <h2 className="font-bold text-base text-white mb-4">Betting Calculators</h2>
+              <BettingCalculators />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════
+          CONSULT (AI Chat)
+      ════════════════════════════════════════ */}
+      {activeNav === "consult" && (
+        <div className="flex flex-col" style={{ height: "calc(100vh - 136px)" }}>
+          <div className="px-4 pt-4 pb-2 border-b border-white/5">
+            <h2 className="font-bold text-base text-white">AI Assistant</h2>
+            <p className="text-xs text-slate-500">Ask about opportunities, strategy, and more</p>
+          </div>
+          <BettingChatBox />
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════
+          HISTORY
+      ════════════════════════════════════════ */}
+      {activeNav === "history" && (
+        <div className="px-4 pt-5 pb-4">
+          {paperMode ? (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="font-bold text-base text-white">Paper Trading</h2>
+                  <p className="text-xs text-slate-500">Virtual bets — no real money</p>
+                </div>
+                <FlaskConical className={`h-5 w-5 ${goldText}`} />
               </div>
               {(() => {
                 const won = paperBets.filter(b => b.status === "won");
                 const lost = paperBets.filter(b => b.status === "lost");
                 const virtualPL = won.reduce((s, b) => s + (b.stake * b.odds - b.stake), 0)
                   - lost.reduce((s, b) => s + b.stake, 0);
+                const settled = paperBets.filter(b => b.status !== "pending");
                 return (
-                  <div className="grid grid-cols-3 gap-3 mb-4">
-                    <StatCard label="Virtual P&L" value={`${virtualPL >= 0 ? "+" : ""}$${virtualPL.toFixed(2)}`} positive={virtualPL >= 0} />
-                    <StatCard label="Bets Tracked" value={String(paperBets.length)} sub={`${won.length} won · ${lost.length} lost`} />
-                    <StatCard label="Win Rate" value={paperBets.filter(b => b.status !== "pending").length > 0 ? `${Math.round(won.length / paperBets.filter(b => b.status !== "pending").length * 100)}%` : "—"} />
-                  </div>
+                  <>
+                    <div className="grid grid-cols-3 gap-3 mb-4">
+                      <div className={`${glass} p-4`}>
+                        <p className="text-[11px] text-slate-500 uppercase tracking-widest">Virtual P&L</p>
+                        <p className={`text-xl font-black mt-1.5 ${virtualPL >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          {virtualPL >= 0 ? "+" : ""}${virtualPL.toFixed(2)}
+                        </p>
+                      </div>
+                      <div className={`${glass} p-4`}>
+                        <p className="text-[11px] text-slate-500 uppercase tracking-widest">Tracked</p>
+                        <p className="text-xl font-black mt-1.5 text-white">{paperBets.length}</p>
+                        <p className="text-xs text-slate-500">{won.length}W · {lost.length}L</p>
+                      </div>
+                      <div className={`${glass} p-4`}>
+                        <p className="text-[11px] text-slate-500 uppercase tracking-widest">Win Rate</p>
+                        <p className="text-xl font-black mt-1.5 text-white">
+                          {settled.length > 0 ? `${Math.round(won.length / settled.length * 100)}%` : "—"}
+                        </p>
+                      </div>
+                    </div>
+                    {paperBets.length === 0 ? (
+                      <EmptyState icon={FlaskConical} message="No paper bets yet" sub='Tap "Place Bets" on any opportunity to track it' />
+                    ) : (
+                      <div className="space-y-2">
+                        {paperBets.map((bet) => (
+                          <div key={bet.id} className={`${glass} border-[#D4AF37]/10 p-3 flex items-center justify-between gap-2`}>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-sm text-white truncate">{bet.event}</p>
+                              <p className="text-xs text-slate-500">{bet.bookmaker} @ {bet.odds} · ${bet.stake}</p>
+                              <p className="text-[11px] text-slate-600">{new Date(bet.loggedAt).toLocaleDateString()}</p>
+                            </div>
+                            {bet.status === "pending" ? (
+                              <div className="flex gap-1.5 shrink-0">
+                                <button
+                                  onClick={() => { settlePaperBet(bet.id, "won"); refreshPaperBets(); }}
+                                  className="text-xs px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400"
+                                >Won</button>
+                                <button
+                                  onClick={() => { settlePaperBet(bet.id, "lost"); refreshPaperBets(); }}
+                                  className="text-xs px-2 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400"
+                                >Lost</button>
+                              </div>
+                            ) : (
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full border shrink-0 ${
+                                bet.status === "won"
+                                  ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                                  : "bg-red-500/20 text-red-400 border-red-500/30"
+                              }`}>{bet.status}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 );
               })()}
-              {paperBets.length === 0 ? (
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
-                  <FlaskConical className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
-                  <p className="text-zinc-400 text-sm">No paper bets yet</p>
-                  <p className="text-zinc-600 text-xs mt-1">Tap "Place Bets" on any opportunity to track it here</p>
-                </div>
-              ) : (
-                <ScrollArea className="h-[calc(100vh-420px)]">
-                  <div className="space-y-2 pr-1">
-                    {paperBets.map((bet) => (
-                      <div key={bet.id} className="bg-zinc-900 border border-[#C9A227]/20 rounded-xl p-3 flex items-center justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-sm text-white truncate">{bet.event}</p>
-                          <p className="text-xs text-zinc-500">{bet.bookmaker} @ {bet.odds} · ${bet.stake}</p>
-                          <p className="text-[11px] text-zinc-600">{new Date(bet.loggedAt).toLocaleDateString()}</p>
-                        </div>
-                        {bet.status === "pending" ? (
-                          <div className="flex gap-1.5 shrink-0">
-                            <button
-                              onClick={() => { settlePaperBet(bet.id, "won"); refreshPaperBets(); }}
-                              className="text-xs px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
-                            >Won</button>
-                            <button
-                              onClick={() => { settlePaperBet(bet.id, "lost"); refreshPaperBets(); }}
-                              className="text-xs px-2 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20"
-                            >Lost</button>
-                          </div>
-                        ) : (
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border shrink-0 ${
-                            bet.status === "won"
-                              ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                              : "bg-red-500/20 text-red-400 border-red-500/30"
-                          }`}>{bet.status}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              )}
             </>
           ) : (
-            // ── Real bet history ──
             <>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-4">
                 <h2 className="font-bold text-base text-white">Bet History</h2>
-                <span className="text-xs text-zinc-500">{bets?.length || 0} bets</span>
+                <span className="text-xs text-slate-500">{bets?.length || 0} bets</span>
               </div>
               <div className="grid grid-cols-3 gap-3 mb-4">
-                <StatCard label="Total P&L" value={`${isPositive ? "+" : ""}$${stats?.totalProfit || "0.00"}`} positive={isPositive} />
-                <StatCard label="Win Rate" value={`${stats?.winRate || "0"}%`} sub={`${stats?.wonBets || 0} won`} />
-                <StatCard label="Total Bets" value={String((bets?.length || 0))} sub={`${stats?.pendingBets || 0} pending`} />
+                <div className={`${glass} p-4`}>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-widest">Total P&L</p>
+                  <p className={`text-xl font-black mt-1.5 ${isPositive ? "text-emerald-400" : "text-red-400"}`}>
+                    {isPositive ? "+" : ""}${stats?.totalProfit || "0.00"}
+                  </p>
+                </div>
+                <div className={`${glass} p-4`}>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-widest">Win Rate</p>
+                  <p className="text-xl font-black mt-1.5 text-white">{stats?.winRate || "0"}%</p>
+                  <p className="text-xs text-slate-500">{stats?.wonBets || 0} won</p>
+                </div>
+                <div className={`${glass} p-4`}>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-widest">Total</p>
+                  <p className="text-xl font-black mt-1.5 text-white">{bets?.length || 0}</p>
+                  <p className="text-xs text-slate-500">{stats?.pendingBets || 0} pending</p>
+                </div>
               </div>
               {!bets || bets.length === 0 ? (
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
-                  <Clock className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
-                  <p className="text-zinc-400 text-sm">No bets placed yet</p>
-                </div>
+                <EmptyState icon={Clock} message="No bets placed yet" />
               ) : (
-                <ScrollArea className="h-[calc(100vh-420px)]">
-                  <div className="space-y-2 pr-1">
-                    {bets.map((bet) => (
-                      <div key={bet.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 flex items-center justify-between">
-                        <div className="flex-1 min-w-0 mr-3">
-                          <p className="font-semibold text-sm text-white truncate">{bet.event}</p>
-                          <p className="text-xs text-zinc-500">{bet.bookmaker} · {bet.sport} · @ {bet.odds}</p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
-                            bet.status === "won" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                            : bet.status === "lost" ? "bg-red-500/20 text-red-400 border-red-500/30"
-                            : "bg-zinc-700/40 text-zinc-400 border-zinc-600/30"
-                          }`}>{bet.status}</span>
-                          <p className="text-xs text-zinc-400 mt-0.5">${bet.stake}</p>
-                        </div>
+                <div className="space-y-2">
+                  {bets.map((bet) => (
+                    <div key={bet.id} className={`${glass} p-3 flex items-center justify-between`}>
+                      <div className="flex-1 min-w-0 mr-3">
+                        <p className="font-semibold text-sm text-white truncate">{bet.event}</p>
+                        <p className="text-xs text-slate-500">{bet.bookmaker} · {bet.sport} · @ {bet.odds}</p>
                       </div>
-                    ))}
-                  </div>
-                </ScrollArea>
+                      <div className="text-right shrink-0">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                          bet.status === "won" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                          : bet.status === "lost" ? "bg-red-500/20 text-red-400 border-red-500/30"
+                          : "bg-slate-700/40 text-slate-400 border-slate-600/30"
+                        }`}>{bet.status}</span>
+                        <p className="text-xs text-slate-400 mt-0.5">${bet.stake}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </>
           )}
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════
+          FIXED BOTTOM NAV
+      ════════════════════════════════════════ */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-[rgba(2,6,23,0.97)] backdrop-blur-xl border-t border-white/5 px-2 py-2 z-50">
+        <div className="grid grid-cols-4 max-w-lg mx-auto">
+          {navItems.map(({ id, label, icon: Icon }) => {
+            const active = activeNav === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setActiveNav(id)}
+                className={`flex flex-col items-center gap-1 py-1.5 px-2 rounded-xl transition-all ${
+                  active ? "" : "text-slate-500 hover:text-slate-300"
+                }`}
+              >
+                <div className={`p-1.5 rounded-xl transition-all ${
+                  active ? "bg-[#D4AF37]/15 shadow-[0_0_16px_rgba(212,175,55,0.3)]" : ""
+                }`}>
+                  <Icon className={`h-5 w-5 ${active ? goldText : ""}`} />
+                </div>
+                <span className={`text-[10px] font-semibold ${active ? goldText : ""}`}>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
       {/* ══ HOW IT WORKS DIALOG ══ */}
       <Dialog open={showHowItWorks} onOpenChange={setShowHowItWorks}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-md">
+        <DialogContent className="bg-[#0d1628] border-white/10 text-white max-w-md">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center gap-2">
               <ShieldCheck className="h-5 w-5 text-emerald-400" /> How placing bets works
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 text-sm text-zinc-300 leading-relaxed">
+          <div className="space-y-3 text-sm text-slate-300 leading-relaxed">
             <p>Sick Punt is a <strong className="text-white">research and tracking tool</strong>. It never places bets on your behalf and never touches your money.</p>
-            <div className="bg-zinc-800/60 rounded-xl p-3 space-y-2">
+            <div className="bg-slate-800/60 rounded-xl p-3 space-y-2">
               <p className="font-semibold text-white text-xs uppercase tracking-wide">When you tap "Place Bets":</p>
-              <p>✓ The bet is <strong>logged in your personal history</strong> so you can track your results over time.</p>
-              <p>✓ The bookmaker's website opens in a new tab so you can place the bet yourself.</p>
-              <p>✓ <strong>You are in full control</strong> — nothing happens without you acting on the bookmaker's site.</p>
+              <p>✓ The bet is <strong>logged in your personal history</strong></p>
+              <p>✓ The bookmaker's site opens so you can place it yourself</p>
+              <p>✓ <strong>You are in full control</strong> at all times</p>
             </div>
-            <p className="text-zinc-400 text-xs">All transactions go directly between you and the licensed, regulated bookmaker. Sick Punt is never in the middle.</p>
-            <div className="bg-[#C9A227]/10 border border-[#C9A227]/30 rounded-xl p-3">
-              <p className="font-semibold text-[#C9A227] text-xs mb-1">💡 Not ready for real money?</p>
-              <p className="text-xs text-zinc-300">Enable <strong>Paper Mode</strong> (top of screen) to track predictions virtually — see what you would have won without risking anything.</p>
+            <p className="text-slate-500 text-xs">All transactions go directly between you and the licensed, regulated bookmaker.</p>
+            <div className={`bg-[#D4AF37]/8 border border-[#D4AF37]/20 rounded-xl p-3`}>
+              <p className={`font-semibold ${goldText} text-xs mb-1`}>💡 Not ready for real money?</p>
+              <p className="text-xs text-slate-300">Enable <strong>Paper Mode</strong> to track predictions virtually.</p>
             </div>
           </div>
-          <Button className="w-full bg-emerald-600 hover:bg-emerald-500 text-white mt-2" onClick={() => setShowHowItWorks(false)}>
+          <Button className={`w-full ${goldBg} text-black font-bold hover:opacity-90 mt-2`} onClick={() => setShowHowItWorks(false)}>
             Got it
           </Button>
         </DialogContent>
       </Dialog>
 
-      {/* ══════════════════════════════════════════════════════════════
-          PLACE BETS DIALOG — Arb tab
-      ══════════════════════════════════════════════════════════════ */}
+      {/* ══ PLACE BETS DIALOG — Arb opps ══ */}
       <Dialog
         open={!!placeBetOpp}
         onOpenChange={(open) => { if (!open) { setPlaceBetOpp(null); setBetPlaced(false); setBetStake(""); } }}
       >
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+        <DialogContent className="bg-[#0d1628] border-white/10 text-white">
           <DialogHeader>
             <div className="flex items-center justify-between">
               <DialogTitle className="text-white">
                 {paperMode ? "Track This Bet (Paper)" : "Place Bets"}
               </DialogTitle>
-              <button onClick={() => setShowHowItWorks(true)} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+              <button onClick={() => setShowHowItWorks(true)} className="text-slate-500 hover:text-slate-300 transition-colors">
                 <Info className="h-4 w-4" />
               </button>
             </div>
-            <DialogDescription className="text-zinc-400">
+            <DialogDescription className="text-slate-400">
               {paperMode
                 ? "This will be logged as a virtual bet — no real money involved."
                 : "Log both legs, then visit each bookmaker's site to place your bets."}
@@ -1018,15 +1115,15 @@ export default function Dashboard() {
             <div className="flex flex-col items-center gap-3 py-6 text-emerald-400">
               <CheckCircle className="h-12 w-12" />
               <p className="font-bold text-lg text-white">Bets logged!</p>
-              <p className="text-sm text-zinc-400">Now visit each bookmaker to place the bets.</p>
+              <p className="text-sm text-slate-400">Now visit each bookmaker to place the bets.</p>
               {placeBetOpp && (
                 <div className="flex gap-3 mt-2">
-                  <Button variant="outline" className="border-zinc-700 text-zinc-300" asChild>
+                  <Button variant="outline" className="border-white/10 text-slate-300" asChild>
                     <a href={getBookmakerUrl(placeBetOpp.bookmaker1)} target="_blank" rel="noopener noreferrer">
                       {placeBetOpp.bookmaker1} <ExternalLink className="h-3 w-3 ml-1" />
                     </a>
                   </Button>
-                  <Button variant="outline" className="border-zinc-700 text-zinc-300" asChild>
+                  <Button variant="outline" className="border-white/10 text-slate-300" asChild>
                     <a href={getBookmakerUrl(placeBetOpp.bookmaker2)} target="_blank" rel="noopener noreferrer">
                       {placeBetOpp.bookmaker2} <ExternalLink className="h-3 w-3 ml-1" />
                     </a>
@@ -1042,40 +1139,40 @@ export default function Dashboard() {
               ? calcArbStakes(odds1, odds2, totalStake) : null;
             return (
               <div className="space-y-4">
-                <div className="rounded-xl border border-zinc-800 bg-zinc-800/40 p-3 text-sm space-y-2">
+                <div className="rounded-xl border border-white/5 bg-slate-800/40 p-3 text-sm space-y-2">
                   <p className="font-semibold text-white">{String(placeBetOpp.event)}</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <p className="text-zinc-500 text-xs">Leg 1 — {placeBetOpp.bookmaker1}</p>
+                      <p className="text-slate-500 text-xs">Leg 1 — {placeBetOpp.bookmaker1}</p>
                       <p className="font-medium text-white">{String(placeBetOpp.outcome1)} @ {placeBetOpp.odds1}</p>
                       {stakes && <p className="text-emerald-400 font-bold">Stake: ${stakes.stake1}</p>}
                     </div>
                     <div>
-                      <p className="text-zinc-500 text-xs">Leg 2 — {placeBetOpp.bookmaker2}</p>
+                      <p className="text-slate-500 text-xs">Leg 2 — {placeBetOpp.bookmaker2}</p>
                       <p className="font-medium text-white">{String(placeBetOpp.outcome2)} @ {placeBetOpp.odds2}</p>
                       {stakes && <p className="text-emerald-400 font-bold">Stake: ${stakes.stake2}</p>}
                     </div>
                   </div>
                   {stakes && (
-                    <div className="pt-2 border-t border-zinc-700 text-center">
+                    <div className="pt-2 border-t border-white/5 text-center">
                       <p className="text-emerald-400 font-black text-base">Guaranteed profit: +${stakes.profit}</p>
-                      <p className="text-xs text-zinc-500">ROI: {stakes.roi}%</p>
+                      <p className="text-xs text-slate-500">ROI: {stakes.roi}%</p>
                     </div>
                   )}
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-zinc-300">Total Stake ($)</Label>
+                  <Label className="text-slate-300">Total Stake ($)</Label>
                   <Input
                     type="number"
                     value={betStake}
                     onChange={(e) => setBetStake(e.target.value)}
                     placeholder="e.g. 200"
-                    className="bg-zinc-800 border-zinc-700 text-white"
+                    className="bg-slate-800/60 border-white/10 text-white"
                   />
-                  {stakes && <p className="text-xs text-zinc-500">Split: ${stakes.stake1} + ${stakes.stake2}</p>}
+                  {stakes && <p className="text-xs text-slate-500">Split: ${stakes.stake1} + ${stakes.stake2}</p>}
                 </div>
                 <Button
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                  className={`w-full ${goldBg} text-black font-bold hover:opacity-90`}
                   onClick={handlePlaceBets}
                   disabled={!betStake || parseFloat(betStake) <= 0 || createBetMutation.isPending}
                 >
@@ -1087,14 +1184,12 @@ export default function Dashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* ══════════════════════════════════════════════════════════════
-          CONFIRM MODAL — Sports Max, Middles, Promos
-      ══════════════════════════════════════════════════════════════ */}
+      {/* ══ CONFIRM MODAL — Sports Max, Middles, Promos ══ */}
       <Dialog open={!!confirmBet} onOpenChange={(open) => { if (!open) setConfirmBet(null); }}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-white">
+        <DialogContent className="bg-[#0d1628] border-white/10 text-white">
           <DialogHeader>
             <DialogTitle className="text-white">Confirm Before You Bet</DialogTitle>
-            <DialogDescription className="text-zinc-400">
+            <DialogDescription className="text-slate-400">
               {confirmBet?.type === "promo"
                 ? "Verify this promotion is showing on the bookmaker site and that you are eligible before proceeding."
                 : "Verify these odds still match on the bookmaker site before placing."}
@@ -1103,54 +1198,51 @@ export default function Dashboard() {
 
           {confirmBet && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-zinc-800 bg-zinc-800/40 p-3 space-y-3">
+              <div className="rounded-xl border border-white/5 bg-slate-800/40 p-3 space-y-3">
                 <p className="font-bold text-sm text-white">{confirmBet.eventName}</p>
-
                 {confirmBet.legs.length > 0 && (
                   <div className="space-y-2">
                     {confirmBet.legs.map((leg, i) => (
                       <div key={i} className="flex items-center justify-between">
                         <div>
                           <p className="font-semibold text-sm text-white">{leg.bookmaker}</p>
-                          <p className="text-xs text-zinc-500">{leg.outcome}</p>
+                          <p className="text-xs text-slate-500">{leg.outcome}</p>
                         </div>
                         <OddsPill odds={Number(leg.odds)} />
                       </div>
                     ))}
                   </div>
                 )}
-
                 {confirmBet.type === "promo" && confirmBet.promo && (
                   <div className="space-y-1">
-                    <p className="text-[11px] text-zinc-500 uppercase tracking-wide font-semibold">Promotion</p>
+                    <p className="text-[11px] text-slate-500 uppercase tracking-wide font-semibold">Promotion</p>
                     <p className="text-sm font-medium text-white">{confirmBet.promo.name}</p>
                     {confirmBet.promo.terms && (
                       <>
-                        <p className="text-[11px] text-zinc-500 uppercase tracking-wide font-semibold mt-2">Terms</p>
-                        <p className="text-xs text-zinc-400 leading-relaxed">{confirmBet.promo.terms}</p>
+                        <p className="text-[11px] text-slate-500 uppercase tracking-wide font-semibold mt-2">Terms</p>
+                        <p className="text-xs text-slate-400 leading-relaxed">{confirmBet.promo.terms}</p>
                       </>
                     )}
                   </div>
                 )}
               </div>
-
               <div className="flex gap-3">
                 {confirmBet.legs.map((leg) => (
-                  <Button key={leg.bookmaker} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white" asChild>
+                  <Button key={leg.bookmaker} className={`flex-1 ${goldBg} text-black font-bold hover:opacity-90`} asChild>
                     <a href={leg.url} target="_blank" rel="noopener noreferrer">
                       {leg.bookmaker} <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
                     </a>
                   </Button>
                 ))}
                 {confirmBet.type === "promo" && confirmBet.promo && (
-                  <Button className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white" asChild>
+                  <Button className={`flex-1 ${goldBg} text-black font-bold hover:opacity-90`} asChild>
                     <a href={confirmBet.promo.url} target="_blank" rel="noopener noreferrer">
                       Visit {confirmBet.promo.bookmaker} <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
                     </a>
                   </Button>
                 )}
               </div>
-              <Button variant="outline" className="w-full border-zinc-700 text-zinc-400" onClick={() => setConfirmBet(null)}>
+              <Button variant="outline" className="w-full border-white/10 text-slate-400" onClick={() => setConfirmBet(null)}>
                 Cancel
               </Button>
             </div>
