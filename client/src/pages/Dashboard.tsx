@@ -428,12 +428,12 @@ export default function Dashboard() {
                       <ScrollArea className="h-[540px] pr-4">
                         <div className="space-y-3">
                           {sportsMax.map((row) => {
-                            const odds1 = row.bet1_odds ?? 0;
-                            const odds2 = row.bet2_odds ?? 0;
+                            const odds1 = Number(row.bet1_odds) || 0;
+                            const odds2 = Number(row.bet2_odds) || 0;
                             const stakes = (odds1 > 1 && odds2 > 1)
                               ? calcArbStakes(odds1, odds2, 100)
                               : null;
-                            const roi = row.roi ?? 0;
+                            const roi = Number(row.roi) || 0;
                             return (
                               <div key={row.id} className="border rounded-lg p-4 space-y-2">
                                 <div className="flex items-start justify-between gap-2">
@@ -518,9 +518,9 @@ export default function Dashboard() {
                       <ScrollArea className="h-[540px] pr-4">
                         <div className="space-y-3">
                           {middleMax.map((row) => {
-                            const odds1 = row.bet1_odds ?? 0;
-                            const odds2 = row.bet2_odds ?? 0;
-                            const risk = row.risk_pct ?? 0;
+                            const odds1 = Number(row.bet1_odds) || 0;
+                            const odds2 = Number(row.bet2_odds) || 0;
+                            const risk = Number(row.risk_pct) || 0;
                             return (
                               <div key={row.id} className="border rounded-lg p-4 space-y-2">
                                 <div className="flex items-start justify-between gap-2">
@@ -979,7 +979,7 @@ export default function Dashboard() {
                           <p className="font-medium">{leg.bookmaker}</p>
                           <p className="text-xs text-muted-foreground">{leg.outcome}</p>
                         </div>
-                        <p className="text-lg font-bold text-primary">{leg.odds.toFixed(2)}</p>
+                        <p className="text-lg font-bold text-primary">{Number(leg.odds).toFixed(2)}</p>
                       </div>
                     ))}
                   </div>
