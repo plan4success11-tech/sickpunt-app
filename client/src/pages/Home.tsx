@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   TrendingUp,
   Zap,
@@ -18,11 +18,19 @@ const SICKPUNT_LOGO_URL = "https://i.imgur.com/4k1Ov7i.png";
 export default function Home() {
   const { isAuthenticated, loading } = useAuth();
   const [videoEnded, setVideoEnded] = useState(false);
+  const [videoFading, setVideoFading] = useState(false);
   const [frozenFrame, setFrozenFrame] = useState<string | null>(null);
   const [heroVisible, setHeroVisible] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // No auto-redirect — everyone sees the landing page and video on every visit
+  if (loading) return null;
+
+  // Already authenticated — skip straight to dashboard, no video replay
+  if (isAuthenticated) {
+    sessionStorage.setItem("sp_intro", "1");
+    window.location.replace("/dashboard");
+    return null;
+  }
 
   const completeIntro = (captureFrame = true) => {
     if (captureFrame) {
@@ -38,28 +46,52 @@ export default function Home() {
         }
       }
     }
-    // Mark that this browser session has seen the landing page
     sessionStorage.setItem("sp_intro", "1");
-    setVideoEnded(true);
-    setTimeout(() => setHeroVisible(true), 180);
+    // Fade the video overlay out, then remove it — smooth cinematic transition
+    setVideoFading(true);
+    setTimeout(() => {
+      setVideoEnded(true);
+      setTimeout(() => setHeroVisible(true), 180);
+    }, 500);
   };
 
   const handleVideoEnd = () => completeIntro(true);
-  // If video file is missing, fall through to hero immediately
   const handleVideoError = () => completeIntro(false);
-
-  if (loading) return null;
 
   return (
     <div className="min-h-screen bg-[#090909] text-white relative overflow-x-hidden">
 
-      {/* ── Intro video — always plays, full-screen, no skip ── */}
+      {/* ── Shimmer keyframe ── */}
+      <style>{`
+        @keyframes sp-shimmer {
+          0%   { transform: translateX(-150%) skewX(-20deg); }
+          100% { transform: translateX(350%)  skewX(-20deg); }
+        }
+        .sp-shimmer-btn { position: relative; overflow: hidden; }
+        .sp-shimmer-btn::after {
+          content: '';
+          position: absolute;
+          inset-y: 0;
+          left: 0;
+          width: 40%;
+          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
+          animation: sp-shimmer 2.5s ease-in-out infinite;
+          transform: skewX(-20deg);
+          pointer-events: none;
+        }
+      `}</style>
+
+      {/* ── Intro video overlay — fades out on end ── */}
       {!videoEnded && (
-        <div className="fixed inset-0 z-50 bg-black">
+        <div
+          className={`fixed inset-0 z-50 bg-black transition-opacity duration-500 ${
+            videoFading ? "opacity-0 pointer-events-none" : "opacity-100"
+          }`}
+        >
           <video
             ref={videoRef}
             src="/media/sickpunt-intro.mp4"
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover object-top"
             autoPlay
             muted
             playsInline
@@ -74,7 +106,7 @@ export default function Home() {
         <img
           src={frozenFrame}
           alt=""
-          className="absolute inset-0 h-full w-full object-cover select-none pointer-events-none"
+          className="absolute inset-0 h-full w-full object-cover object-top select-none pointer-events-none"
           aria-hidden
         />
       )}
@@ -90,12 +122,16 @@ export default function Home() {
         {/* ── Header ── */}
         <header className="flex items-center justify-between lg:px-16 xl:px-24">
           <div className="flex items-center gap-3">
-            <img src={SICKPUNT_LOGO_URL} alt="Sick Punt" className="h-10 w-10 rounded-md object-cover" />
-            <span className="text-3xl font-black tracking-tight uppercase">Sick Punt</span>
+            <img
+              src={SICKPUNT_LOGO_URL}
+              alt="Sick Punt"
+              className="h-16 w-16 rounded-xl object-cover shadow-lg"
+            />
           </div>
-          {/* Desktop-only nav links */}
           <nav className="hidden lg:flex items-center gap-8 text-sm font-medium text-white/70">
-            <span className="text-white/40 text-xs tracking-widest uppercase">Australia's Smartest Betting Tool</span>
+            <span className="text-white/40 text-xs tracking-widest uppercase">
+              Australia's Smartest Betting Tool
+            </span>
           </nav>
         </header>
 
@@ -104,7 +140,9 @@ export default function Home() {
 
           {/* LEFT — hero copy + CTA */}
           <div
-            className={`flex-1 transition-all duration-700 ${heroVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}
+            className={`flex-1 transition-all duration-700 ${
+              heroVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+            }`}
           >
             <p className="text-xs tracking-[0.25em] uppercase text-emerald-300/80 font-semibold">
               Sick Punt Sports Intelligence
@@ -121,32 +159,23 @@ export default function Home() {
               and an AI assistant — all in one feed.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-              {isAuthenticated ? (
-                <a
-                  href="/dashboard"
-                  className="inline-block rounded-xl bg-[#ffe334] px-8 py-4 text-xl font-black text-black shadow-[0_14px_45px_rgba(0,0,0,0.5)] transition-transform hover:scale-[1.02] active:scale-[0.98] text-center"
-                >
-                  Go to Dashboard
-                </a>
-              ) : (
-                <>
-                  <a
-                    href={getLoginUrl()}
-                    className="inline-block rounded-xl bg-[#ffe334] px-8 py-4 text-xl font-black text-black shadow-[0_14px_45px_rgba(0,0,0,0.5)] transition-transform hover:scale-[1.02] active:scale-[0.98] text-center"
-                  >
-                    Join Now
-                  </a>
-                  <p className="text-xs text-white/50 sm:ml-2">
-                    Sign in with Google · No credit card required
-                  </p>
-                </>
-              )}
+              <a
+                href={getLoginUrl()}
+                className="sp-shimmer-btn inline-block rounded-xl bg-[#C9A227] px-8 py-4 text-xl font-black text-black shadow-[0_14px_45px_rgba(201,162,39,0.4)] transition-transform hover:scale-[1.02] active:scale-[0.98] text-center"
+              >
+                Join Now
+              </a>
+              <p className="text-xs text-white/50 sm:ml-2">
+                Sign in with Google · No credit card required
+              </p>
             </div>
           </div>
 
-          {/* RIGHT — feature cards (hidden on mobile until video done) */}
+          {/* RIGHT — feature cards */}
           <div
-            className={`mt-10 flex-1 space-y-3 transition-all duration-700 delay-200 lg:mt-0 lg:max-w-md ${heroVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}
+            className={`mt-10 flex-1 space-y-3 transition-all duration-700 delay-200 lg:mt-0 lg:max-w-md ${
+              heroVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+            }`}
           >
             {/* Scout core card */}
             <div className="rounded-2xl border border-white/10 bg-black/40 p-5 backdrop-blur">
@@ -159,7 +188,7 @@ export default function Home() {
             {/* Three-column mini cards */}
             <div className="grid grid-cols-3 gap-2">
               {[
-                { icon: Zap,    label: "Live Odds"  },
+                { icon: Zap,    label: "Live Odds"   },
                 { icon: Bot,    label: "AI Guidance" },
                 { icon: Shield, label: "Risk Guard"  },
               ].map(({ icon: Icon, label }) => (
@@ -193,7 +222,9 @@ export default function Home() {
 
         {/* ── Bottom nav — mobile only ── */}
         <nav
-          className={`mt-6 grid grid-cols-5 rounded-2xl border border-white/10 bg-black/55 px-3 py-2 backdrop-blur lg:hidden transition-all duration-700 delay-300 ${heroVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}
+          className={`mt-6 grid grid-cols-5 rounded-2xl border border-white/10 bg-black/55 px-3 py-2 backdrop-blur lg:hidden transition-all duration-700 delay-300 ${
+            heroVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+          }`}
         >
           {[
             { icon: House,    label: "Home",    active: true  },
@@ -203,8 +234,8 @@ export default function Home() {
             { icon: UserRound,label: "Account", active: false },
           ].map(({ icon: Icon, label, active }) => (
             <button key={label} className="flex flex-col items-center gap-1 py-1">
-              <Icon className={`h-4 w-4 ${active ? "text-[#ffe334]" : "text-white/55"}`} />
-              <span className={`text-[11px] ${active ? "text-[#ffe334]" : "text-white/60"}`}>{label}</span>
+              <Icon className={`h-4 w-4 ${active ? "text-[#C9A227]" : "text-white/55"}`} />
+              <span className={`text-[11px] ${active ? "text-[#C9A227]" : "text-white/60"}`}>{label}</span>
             </button>
           ))}
         </nav>
