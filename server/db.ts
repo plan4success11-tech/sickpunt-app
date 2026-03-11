@@ -106,10 +106,16 @@ export async function getUserByOpenId(openId: string) {
 
 // ==================== OPPORTUNITY QUERIES ====================
 
+export async function clearOpportunities() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(opportunities);
+}
+
 export async function createOpportunity(opportunity: InsertOpportunity) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   const result = await db.insert(opportunities).values(opportunity);
   return result;
 }

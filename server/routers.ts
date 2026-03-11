@@ -15,6 +15,7 @@ import {
   convertToDecimal
 } from "./bettingCalculations";
 import {
+  clearOpportunities,
   createOpportunity,
   getActiveOpportunities,
   getOpportunitiesByType,
@@ -634,6 +635,9 @@ export const appRouter = router({
         minQuality: z.enum(["excellent", "good", "fair", "poor"]).default("good")
       }))
       .mutation(async ({ input, ctx }) => {
+        // Clear old/test entries so only fresh scan results are shown
+        await clearOpportunities();
+
         const sportKeys = getAustralianSports();
         const allOpportunities = [];
         
