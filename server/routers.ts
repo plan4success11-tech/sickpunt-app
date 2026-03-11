@@ -55,6 +55,12 @@ import {
   getImperialIngestionStatus,
   runImperialIngestion,
 } from "./imperialIngestion";
+import {
+  getBookmakerIntelligence,
+  getPromotions,
+  getSportsMaximiser,
+  getMiddleMaximiser,
+} from "./imperialQueries";
 
 export const appRouter = router({
   system: systemRouter,
@@ -405,7 +411,25 @@ export const appRouter = router({
 
         // Get recent chat history
         const history = await getUserChatHistory(ctx.user.id, 20);
-        
+
+        // Inject live data so AI can give specific advice
+        const [liveOpps, livePromos, liveSportsMax, liveMiddles, userAccounts] = await Promise.all([
+          getActiveOpportunities().catch(() => []),
+          getPromotions(50).catch(() => []),
+          getSportsMaximiser(20).catch(() => []),
+          getMiddleMaximiser(20).catch(() => []),
+          getUserBookmakerAccounts(ctx.user.id).catch(() => []),
+        ]);
+
+        const liveDataContext = [
+          `== LIVE DATA (as of ${new Date().toLocaleString('en-AU', { timeZone: 'Australia/Sydney' })} AEDT) ==`,
+          `User accounts: ${userAccounts.length > 0 ? userAccounts.map(a => `${a.bookmaker} (balance: $${a.currentBalance ?? 'unknown'})`).join(', ') : 'None registered yet'}`,
+          `Arbitrage opportunities in DB: ${liveOpps.length}${liveOpps.length > 0 ? '\n' + liveOpps.slice(0, 5).map(o => `  - ${o.event} | ${o.bookmaker1} vs ${o.bookmaker2} | ${o.odds1}/${o.odds2} | ROI: ${o.roi}% | Stake: $${o.recommendedStake}`).join('\n') : ''}`,
+          `Sports Maximiser (top opportunities): ${liveSportsMax.length > 0 ? '\n' + liveSportsMax.slice(0, 5).map(r => `  - ${r.event_name} | ${r.bet1_bookmaker}(${r.bet1_odds}) vs ${r.bet2_bookmaker}(${r.bet2_odds}) | ROI: ${r.roi}%`).join('\n') : 'No data yet'}`,
+          `Middle Maximiser (top opportunities): ${liveMiddles.length > 0 ? '\n' + liveMiddles.slice(0, 5).map(r => `  - ${r.event_name} | ${r.bet1_bookmaker}(${r.bet1_odds}) vs ${r.bet2_bookmaker}(${r.bet2_odds}) | Risk: ${r.risk_pct}%`).join('\n') : 'No data yet'}`,
+          `Active promotions: ${livePromos.length} total${livePromos.length > 0 ? '\n' + [...new Set(livePromos.map(p => p.bookmaker))].filter(Boolean).map(bk => { const bkPromos = livePromos.filter(p => p.bookmaker === bk); return `  ${bk}: ${bkPromos.length} promo(s)`; }).join('\n') : ''}`,
+        ].join('\n');
+
         // Build context with knowledge base
         const messages = [
           { role: 'system' as const, content: SYSTEM_PROMPT },
@@ -415,6 +439,7 @@ export const appRouter = router({
               "Formatting rule: respond in plain text only. Do not use markdown syntax (no #, *, backticks, tables, or fenced code blocks). Keep responses clean, structured, and concise.",
           },
           { role: 'system' as const, content: `Knowledge Base:\n${BETTING_KNOWLEDGE_BASE}` },
+          { role: 'system' as const, content: liveDataContext },
           ...history.map(msg => ({
             role: msg.role as 'user' | 'assistant' | 'system',
             content: msg.content
@@ -504,7 +529,7 @@ export const appRouter = router({
     status: protectedProcedure.query(async () => {
       return getImperialIngestionStatus();
     }),
-    trigger: adminProcedure
+    trigger: protectedProcedure
       .input(
         z.object({
           mode: z.enum(["all", "odds", "sports", "middle", "promos", "intel"]).default("all"),
@@ -513,6 +538,24 @@ export const appRouter = router({
       )
       .mutation(async ({ input }) => {
         return runImperialIngestion(input.mode, input.pages);
+      }),
+    bookmakerIntel: protectedProcedure.query(async () => {
+      return getBookmakerIntelligence();
+    }),
+    promotions: protectedProcedure
+      .input(z.object({ limit: z.number().default(200) }).optional())
+      .query(async ({ input }) => {
+        return getPromotions(input?.limit ?? 200);
+      }),
+    sportsMax: protectedProcedure
+      .input(z.object({ limit: z.number().default(100) }).optional())
+      .query(async ({ input }) => {
+        return getSportsMaximiser(input?.limit ?? 100);
+      }),
+    middleMax: protectedProcedure
+      .input(z.object({ limit: z.number().default(100) }).optional())
+      .query(async ({ input }) => {
+        return getMiddleMaximiser(input?.limit ?? 100);
       }),
   }),
 
@@ -596,7 +639,8 @@ export const appRouter = router({
         
         for (const sportKey of sportKeys) {
           try {
-            const { data } = await fetchOdds(sportKey, "au");
+            // Only request h2h to conserve API quota (free plan: 500 req/month)
+            const { data } = await fetchOdds(sportKey, "au", "h2h");
             let opportunities = scanEventsForArbitrage(data, input.minRoi, input.recommendedStake);
             opportunities = filterOpportunitiesByQuality(opportunities, input.minQuality);
             allOpportunities.push(...opportunities);

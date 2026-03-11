@@ -159,6 +159,19 @@ async function scanAllOpportunities(): Promise<number> {
 export function initializeBackgroundJobs(): void {
   console.log('[Background Jobs] Initializing background job scheduler...');
 
+  // Only run automatic Odds API scans if explicitly enabled.
+  // The free plan gives 500 requests/month; scanning 7 sports with h2h,spreads,totals
+  // every hour burns through this in ~1 day. Disabled by default.
+  if (process.env.ENABLE_ODDS_SCAN !== 'true') {
+    console.log('[Background Jobs] Odds API auto-scan disabled (ENABLE_ODDS_SCAN != true). Manual scan via UI still works.');
+    const now = new Date();
+    const nextHour = new Date(now);
+    nextHour.setHours(now.getHours() + 1, 0, 0, 0);
+    jobStatus.nextRun = nextHour;
+    console.log(`[Background Jobs] Scheduler initialized. Next scan at ${jobStatus.nextRun.toISOString()}`);
+    return;
+  }
+
   scheduledTask = cron.schedule('0 * * * *', async () => {
     if (jobStatus.isRunning) {
       console.log('[Background Job] Previous scan still running, skipping this hour');

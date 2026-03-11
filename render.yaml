@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: sickpunt
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    envVars:
+      # Non-sensitive — safe to commit
+      - key: NODE_ENV
+        value: production
+      - key: VITE_APP_ID
+        value: sickpunt
+      - key: BUILT_IN_FORGE_API_URL
+        value: https://api.groq.com/openai
+      - key: ENABLE_IMPERIAL_INGESTION
+        value: "true"
+      - key: GOOGLE_REDIRECT_URI
+        value: https://sickpunt.onrender.com/api/oauth/callback
+      - key: OWNER_OPEN_ID
+        value: google:100736281088077112933
+
+      # SECRETS — set these manually in the Render dashboard (Environment tab)
+      # Do NOT add values here — they would be committed to git
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: BUILT_IN_FORGE_API_KEY
+        sync: false
+      - key: ODDS_API_KEY
+        sync: false

@@ -169,8 +169,13 @@ function DashboardLayoutContent({
               </button>
               {!isCollapsed ? (
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
-                    Navigation
+                  <img
+                    src="https://i.imgur.com/4k1Ov7i.png"
+                    alt="Sick Punt"
+                    className="h-6 w-6 rounded object-cover shrink-0"
+                  />
+                  <span className="font-bold tracking-tight truncate text-sm uppercase">
+                    Sick Punt
                   </span>
                 </div>
               ) : null}

@@ -12,9 +12,10 @@ COPY . .
 
 RUN pnpm run build
 
+# Non-sensitive defaults — secrets are set via environment variables in Render/Railway dashboard
 ENV NODE_ENV=production
-ENV JWT_SECRET=sickpunt_jwt_fallback_x9k2mPqR7vLnW4sT8uY3zA6bE1cF5gH0jK
-ENV DATABASE_URL=mysql://root:qVLHGRMlnylNCHJBoOoViOBEHuLNVHfn@hopper.proxy.rlwy.net:14072/railway
-ENV GOOGLE_REDIRECT_URI=https://sickpunt-app-production.up.railway.app/api/oauth/callback
+ENV VITE_APP_ID=sickpunt
+ENV BUILT_IN_FORGE_API_URL=https://api.groq.com/openai
+ENV ENABLE_IMPERIAL_INGESTION=true
 
 CMD ["pnpm", "start"]

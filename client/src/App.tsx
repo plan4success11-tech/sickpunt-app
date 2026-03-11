@@ -9,6 +9,13 @@ import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 
 function DashboardRoute() {
+  // Every browser session must come through the landing page first.
+  // sessionStorage clears when the tab/browser is closed, so each new visit
+  // will be redirected to the landing page rather than straight to the dashboard.
+  if (!sessionStorage.getItem("sp_intro")) {
+    window.location.replace("/");
+    return null;
+  }
   return (
     <DashboardLayout>
       <Dashboard />
