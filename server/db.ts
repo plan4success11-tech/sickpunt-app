@@ -36,6 +36,7 @@ function createPool() {
     connectionLimit: 10,
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
+    ssl: { rejectUnauthorized: false },
   });
   // Auto-reconnect on connection loss
   pool.on("connection", (conn) => {
@@ -94,7 +95,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   const lastSignedIn = user.lastSignedIn ?? now;
 
   console.log("[Database] upsertUser via fresh connection:", user.openId);
-  const conn = await mysqlPromise.createConnection(process.env.DATABASE_URL);
+  const conn = await mysqlPromise.createConnection({ uri: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
   try {
     await conn.execute(
       `INSERT INTO users (openId, name, email, loginMethod, role, lastSignedIn)
