@@ -34,6 +34,10 @@ function createPool() {
     uri: process.env.DATABASE_URL,
     waitForConnections: true,
     connectionLimit: 10,
+    queueLimit: 0,
+    maxIdle: 5,
+    idleTimeout: 30000,
+    connectTimeout: 10000,
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
     ssl: { rejectUnauthorized: false },
@@ -94,19 +98,37 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   const loginMethod = user.loginMethod ?? null;
   const lastSignedIn = user.lastSignedIn ?? now;
 
-  console.log("[Database] upsertUser via fresh connection:", user.openId);
-  const conn = await mysqlPromise.createConnection({ uri: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
-  try {
-    await conn.execute(
-      `INSERT INTO users (openId, name, email, loginMethod, role, lastSignedIn)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE name=?, email=?, loginMethod=?, role=?, lastSignedIn=?`,
-      [user.openId, name, email, loginMethod, role, lastSignedIn,
-       name, email, loginMethod, role, lastSignedIn]
-    );
-    console.log("[Database] upsertUser success:", user.openId);
-  } finally {
-    await conn.end();
+  const MAX_RETRIES = 3;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    console.log(`[Database] upsertUser attempt ${attempt}:`, user.openId);
+    const conn = await mysqlPromise.createConnection({ uri: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    try {
+      await conn.execute(
+        `INSERT INTO users (openId, name, email, loginMethod, role, lastSignedIn)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE name=?, email=?, loginMethod=?, role=?, lastSignedIn=?`,
+        [user.openId, name, email, loginMethod, role, lastSignedIn,
+         name, email, loginMethod, role, lastSignedIn]
+      );
+      console.log("[Database] upsertUser success:", user.openId);
+      return;
+    } catch (error: any) {
+      await conn.end().catch(() => {});
+      const isConnError =
+        error.message?.includes('Connection lost') ||
+        error.message?.includes('ECONNRESET') ||
+        error.message?.includes('PROTOCOL_CONNECTION_LOST') ||
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'PROTOCOL_CONNECTION_LOST';
+      if (isConnError && attempt < MAX_RETRIES) {
+        console.warn(`[Database] upsertUser connection error attempt ${attempt}, retrying in ${attempt * 1000}ms...`);
+        await new Promise(r => setTimeout(r, attempt * 1000));
+        continue;
+      }
+      throw error;
+    } finally {
+      await conn.end().catch(() => {});
+    }
   }
 }
 
