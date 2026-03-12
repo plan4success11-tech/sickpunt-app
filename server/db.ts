@@ -31,8 +31,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function getPool(): mysqlPromise.Pool {
   if (!_sharedPool) {
+    const dbUrl = process.env.DATABASE_URL || '';
+    try {
+      const parsed = new URL(dbUrl.replace('mysql://', 'http://'));
+      console.log(`[Database] Connecting to host: ${parsed.hostname}:${parsed.port} db: ${parsed.pathname}`);
+      console.log(`[Database] Is private network: ${dbUrl.includes('.railway.internal')}`);
+    } catch { console.log('[Database] DATABASE_URL parse failed'); }
+
+    const useSSL = process.env.DB_SSL !== 'false';
+    console.log(`[Database] SSL: ${useSSL}`);
+
     _sharedPool = mysqlPromise.createPool({
-      uri: process.env.DATABASE_URL,
+      uri: dbUrl,
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
@@ -41,11 +51,23 @@ function getPool(): mysqlPromise.Pool {
       connectTimeout: 10000,
       enableKeepAlive: true,
       keepAliveInitialDelay: 10000,
-      ssl: { rejectUnauthorized: false },
+      ...(useSSL ? { ssl: { rejectUnauthorized: false } } : {}),
     });
     console.log("[Database] Pool created");
   }
   return _sharedPool;
+}
+
+export async function checkDbHealth(): Promise<{ ok: boolean; error?: string; host?: string }> {
+  try {
+    const dbUrl = process.env.DATABASE_URL || '';
+    const parsed = new URL(dbUrl.replace('mysql://', 'http://'));
+    const pool = getPool();
+    await pool.execute('SELECT 1');
+    return { ok: true, host: `${parsed.hostname}:${parsed.port}` };
+  } catch (error: any) {
+    return { ok: false, error: error.message, host: process.env.DATABASE_URL?.split('@')[1]?.split('/')[0] };
+  }
 }
 
 export async function getDb() {

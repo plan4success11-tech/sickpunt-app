@@ -62,10 +62,17 @@ import {
   getSportsMaximiser,
   getMiddleMaximiser,
 } from "./imperialQueries";
+import { checkDbHealth } from "./db";
 
 export const appRouter = router({
   system: systemRouter,
-  
+
+  health: router({
+    db: publicProcedure.query(async () => {
+      return await checkDbHealth();
+    }),
+  }),
+
   auth: router({
     me: publicProcedure.query(async (opts) => {
       // Fast path: SDK authenticated the user via DB lookup
