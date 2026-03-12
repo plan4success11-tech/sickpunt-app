@@ -15,6 +15,13 @@
       "when": 1765239759504,
       "tag": "0001_overrated_wiccan",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1773283372068,
+      "tag": "0002_legal_shriek",
+      "breakpoints": true
     }
   ]
 }

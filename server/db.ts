@@ -1,9 +1,12 @@
 import { eq, and, desc, gte, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { 
-  InsertUser, 
-  users, 
-  opportunities, 
+import { migrate } from "drizzle-orm/mysql2/migrator";
+import path from "path";
+import { fileURLToPath } from "url";
+import {
+  InsertUser,
+  users,
+  opportunities,
   InsertOpportunity,
   bets,
   InsertBet,
@@ -19,6 +22,9 @@ import {
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _migrated = false;
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -27,6 +33,16 @@ export async function getDb() {
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
+    }
+  }
+  if (_db && !_migrated) {
+    _migrated = true;
+    try {
+      const migrationsFolder = path.resolve(__dirname, "../drizzle");
+      await migrate(_db, { migrationsFolder });
+      console.log("[Database] Migrations applied successfully");
+    } catch (error) {
+      console.warn("[Database] Migration failed (non-fatal):", error);
     }
   }
   return _db;
@@ -88,7 +104,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       set: updateSet,
     });
   } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
+    const cause = (error as any)?.cause;
+    console.error("[Database] Failed to upsert user:", error, cause ? `cause: ${JSON.stringify(cause)}` : "");
     throw error;
   }
 }
