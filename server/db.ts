@@ -1,7 +1,6 @@
-import { eq, and, desc, gte, lte } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { migrate } from "drizzle-orm/mysql2/migrator";
-import mysql from "mysql2";
 import mysqlPromise from "mysql2/promise";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -23,52 +22,38 @@ import {
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
+// Single shared pool — used by both Drizzle and direct queries
+let _sharedPool: mysqlPromise.Pool | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
-let _pool: ReturnType<typeof mysql.createPool> | null = null;
 let _migrated = false;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function createPool() {
-  const pool = mysql.createPool({
-    uri: process.env.DATABASE_URL,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    maxIdle: 5,
-    idleTimeout: 30000,
-    connectTimeout: 10000,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 10000,
-    ssl: { rejectUnauthorized: false },
-  });
-  // Auto-reconnect on connection loss
-  pool.on("connection", (conn) => {
-    conn.on("error", (err) => {
-      if (err.code === "PROTOCOL_CONNECTION_LOST") {
-        console.warn("[Database] Connection lost, pool will reconnect automatically");
-      }
+function getPool(): mysqlPromise.Pool {
+  if (!_sharedPool) {
+    _sharedPool = mysqlPromise.createPool({
+      uri: process.env.DATABASE_URL,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+      maxIdle: 5,
+      idleTimeout: 30000,
+      connectTimeout: 10000,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
+      ssl: { rejectUnauthorized: false },
     });
-  });
-  return pool;
-}
-
-export function resetDb() {
-  if (_pool) {
-    try { _pool.end(() => {}); } catch {}
+    console.log("[Database] Pool created");
   }
-  _pool = null;
-  _db = null;
-  _migrated = false;
+  return _sharedPool;
 }
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _pool = createPool();
-      _db = drizzle(_pool);
+      _db = drizzle(getPool() as any);
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      console.warn("[Database] Failed to init Drizzle:", error);
       _db = null;
     }
   }
@@ -98,12 +83,12 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   const loginMethod = user.loginMethod ?? null;
   const lastSignedIn = user.lastSignedIn ?? now;
 
+  const pool = getPool();
   const MAX_RETRIES = 3;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    console.log(`[Database] upsertUser attempt ${attempt}:`, user.openId);
-    const conn = await mysqlPromise.createConnection({ uri: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
     try {
-      await conn.execute(
+      console.log(`[Database] upsertUser attempt ${attempt}:`, user.openId);
+      await pool.execute(
         `INSERT INTO users (openId, name, email, loginMethod, role, lastSignedIn)
          VALUES (?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE name=?, email=?, loginMethod=?, role=?, lastSignedIn=?`,
@@ -113,7 +98,6 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       console.log("[Database] upsertUser success:", user.openId);
       return;
     } catch (error: any) {
-      await conn.end().catch(() => {});
       const isConnError =
         error.message?.includes('Connection lost') ||
         error.message?.includes('ECONNRESET') ||
@@ -121,13 +105,12 @@ export async function upsertUser(user: InsertUser): Promise<void> {
         error.code === 'ECONNREFUSED' ||
         error.code === 'PROTOCOL_CONNECTION_LOST';
       if (isConnError && attempt < MAX_RETRIES) {
-        console.warn(`[Database] upsertUser connection error attempt ${attempt}, retrying in ${attempt * 1000}ms...`);
+        console.warn(`[Database] upsertUser conn error attempt ${attempt}, retrying in ${attempt}s...`);
         await new Promise(r => setTimeout(r, attempt * 1000));
         continue;
       }
+      console.error("[Database] upsertUser failed:", error.message);
       throw error;
-    } finally {
-      await conn.end().catch(() => {});
     }
   }
 }
