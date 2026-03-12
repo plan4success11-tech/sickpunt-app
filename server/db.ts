@@ -1,7 +1,7 @@
 import { eq, and, desc, gte, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { migrate } from "drizzle-orm/mysql2/migrator";
-import mysql from "mysql2/promise";
+import mysql from "mysql2";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
@@ -23,21 +23,44 @@ import {
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _pool: ReturnType<typeof mysql.createPool> | null = null;
 let _migrated = false;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+function createPool() {
+  const pool = mysql.createPool({
+    uri: process.env.DATABASE_URL,
+    waitForConnections: true,
+    connectionLimit: 10,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
+  });
+  // Auto-reconnect on connection loss
+  pool.on("connection", (conn) => {
+    conn.on("error", (err) => {
+      if (err.code === "PROTOCOL_CONNECTION_LOST") {
+        console.warn("[Database] Connection lost, pool will reconnect automatically");
+      }
+    });
+  });
+  return pool;
+}
+
+export function resetDb() {
+  if (_pool) {
+    try { _pool.end(() => {}); } catch {}
+  }
+  _pool = null;
+  _db = null;
+  _migrated = false;
+}
+
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      const pool = mysql.createPool({
-        uri: process.env.DATABASE_URL,
-        waitForConnections: true,
-        connectionLimit: 10,
-        enableKeepAlive: true,
-        keepAliveInitialDelay: 0,
-      });
-      _db = drizzle(pool);
+      _pool = createPool();
+      _db = drizzle(_pool);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -58,63 +81,61 @@ export async function getDb() {
 
 // ==================== USER QUERIES ====================
 
+async function doUpsertUser(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, user: InsertUser) {
+  const values: InsertUser = { openId: user.openId };
+  const updateSet: Record<string, unknown> = {};
+  const textFields = ["name", "email", "loginMethod"] as const;
+  type TextField = (typeof textFields)[number];
+  const assignNullable = (field: TextField) => {
+    const value = user[field];
+    if (value === undefined) return;
+    const normalized = value ?? null;
+    values[field] = normalized;
+    updateSet[field] = normalized;
+  };
+  textFields.forEach(assignNullable);
+  if (user.lastSignedIn !== undefined) {
+    values.lastSignedIn = user.lastSignedIn;
+    updateSet.lastSignedIn = user.lastSignedIn;
+  }
+  if (user.role !== undefined) {
+    values.role = user.role;
+    updateSet.role = user.role;
+  } else if (user.openId === ENV.ownerOpenId) {
+    values.role = 'admin';
+    updateSet.role = 'admin';
+  }
+  if (!values.lastSignedIn) values.lastSignedIn = new Date();
+  if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
+  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
+}
+
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");
   }
 
-  const db = await getDb();
+  let db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot upsert user: database not available");
     return;
   }
 
   try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
+    await doUpsertUser(db, user);
   } catch (error) {
-    const cause = (error as any)?.cause;
-    console.error("[Database] Failed to upsert user:", error, cause ? `cause: ${JSON.stringify(cause)}` : "");
-    throw error;
+    const code = (error as any)?.cause?.code;
+    if (code === "PROTOCOL_CONNECTION_LOST" || code === "ECONNRESET") {
+      console.warn("[Database] Connection lost during upsert, resetting pool and retrying...");
+      resetDb();
+      db = await getDb();
+      if (!db) throw new Error("Database unavailable after reconnect");
+      await doUpsertUser(db, user);
+    } else {
+      const cause = (error as any)?.cause;
+      console.error("[Database] Failed to upsert user:", error, cause ? `cause: ${JSON.stringify(cause)}` : "");
+      throw error;
+    }
   }
 }
 
